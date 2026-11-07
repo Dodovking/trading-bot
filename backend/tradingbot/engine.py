@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from .brokers.base import BrokerError
 from .core import bus
-from .core.config import LIVE_SMALL_RISK_FACTOR, ORDER_STATUSES, SHADOW_STATUSES, current_config
+from .core.config import LIVE_SMALL_RISK_FACTOR, ORDER_STATUSES, SHADOW_STATUSES, current_config, migrate_default_markets
 from .core.db import session_scope, utcnow
 from .core.events import log_event
 from .core.models import (AccountSnapshot, BotRuntime, Instrument, Position, RegimeLog, RiskDecision, SignalRow,
@@ -26,7 +26,7 @@ from .core.state import STATE_LABELS, TransitionError, check_transition
 from .core.types import TIMEFRAMES, Decision, PositionView
 from .data.instruments import instruments_by_symbol, seed_instruments
 from .data.market import MarketData
-from .data.sources import KrakenPublic
+from .data.composite import CompositeSource
 from .execution.accounts import ensure_user_setup, get_account, make_broker
 from .execution.orders import OrderManager
 from .earn.modules import run_modules
@@ -50,7 +50,7 @@ def _d(x) -> Decimal | None:
 
 class Engine:
     def __init__(self, market: MarketData | None = None):
-        self.market = market or MarketData(KrakenPublic())
+        self.market = market or MarketData(CompositeSource())
         self.lock = threading.RLock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -64,6 +64,7 @@ class Engine:
     def start(self) -> None:
         with session_scope() as db:
             seed_instruments(db)
+            migrate_default_markets(db)
             for rt in db.scalars(select(BotRuntime)):
                 # Nach Neustart immer erst abgleichen (Abschnitt 4.4)
                 if rt.state not in ("NOT_AUS", "GESPERRT"):
@@ -104,6 +105,7 @@ class Engine:
                 for s in cfg["strategies"]:
                     if s["status"] in SHADOW_STATUSES:
                         needed.update((m, s["timeframe"]) for m in (s["markets"] or cfg["markets"]))
+            needed = {(m, tf) for m, tf in needed if self.market.usable(m)}
             symbols = {m for m, _ in needed if m in insts}
             self.market.refresh_tickers([insts[s] for s in symbols])
             now = utcnow()
@@ -201,6 +203,17 @@ class UserRunner:
             return []
         return list(self.db.scalars(select(Position).where(Position.user_id == self.user_id, Position.account_id == self.acct.id,
                                                            Position.status == "offen")))
+
+    def venue_note(self, inst: Instrument) -> str:
+        """Leer, wenn das aktive Konto diesen Markt handeln kann (Paper: alle Märkte)."""
+        if self.acct is None or self.acct.kind == "paper":
+            return ""
+        from .brokers.catalog import BY_ID
+        p = BY_ID.get(self.acct.broker)
+        if p is None:
+            return ""
+        need = "aktien" if inst.market == "aktie" else "krypto"
+        return "" if need in p["markets"] else f"{p['name']} bietet {inst.symbol} nicht an"
 
     def inst_by_id(self, iid: int) -> Instrument:
         return self.db.get(Instrument, iid)
@@ -451,7 +464,8 @@ class UserRunner:
             volume_24h=t.volume_24h_quote if t else None, stop=_d(sig.stop_suggestion), min_qty=inst.min_qty, step=inst.step_size,
             last_range_atr=last_range_atr, strategy_name=s["name"], strategy_weight=weight,
             strategy_open_risk=sum((open_risk[p.id] for p in positions if p.strategy_id == s["id"]), D(0)),
-            total_open_risk=sum(open_risk.values(), D(0)), risk_factor=factor, risk_factor_note=note)
+            total_open_risk=sum(open_risk.values(), D(0)), risk_factor=factor, risk_factor_note=note,
+            hours=inst.trading_hours, venue_note=self.venue_note(inst))
         rr = evaluate(ctx)
         dec = RiskDecision(user_id=self.user_id, signal_id=sig.id, kind="einstieg", result=rr.result, rule=rr.rule[:80],
                            limit_value=rr.limit[:60], actual_value=rr.actual[:60], position_size=rr.qty,

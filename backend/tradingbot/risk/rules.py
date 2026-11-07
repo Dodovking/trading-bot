@@ -68,6 +68,8 @@ class RiskContext:
     module: str = ""  # Ertragsmodul (kind="modul")
     module_value: Decimal = D(0)  # bereits gebundenes Kapital des Moduls
     amount: Decimal = D(0)  # gewünschter Kaufbetrag (Module)
+    hours: str = "24/7"  # Handelszeiten des Markts
+    venue_note: str = ""  # gesetzt, wenn der verbundene Broker diesen Markt nicht anbietet
 
 
 @dataclass
@@ -183,6 +185,8 @@ def evaluate(ctx: RiskContext) -> RiskResult:
     # 4 Markt/Handelszeit/Sperrzeit
     if not ctx.tradable:
         return fail(Check(4, "Markt handelbar", False, "Markt", "handelbar", "nur Analyse"))
+    if ctx.venue_note:
+        return fail(Check(4, "Markt beim Broker handelbar", False, "Markt beim Broker", "bietet Markt an", ctx.venue_note))
     bl = _in_blackout(ctx.blackouts, ctx.now)
     if bl:
         return fail(Check(4, "Kein Sperrzeitraum", False, "Sperrzeitraum", "keiner", bl))
@@ -190,7 +194,7 @@ def evaluate(ctx: RiskContext) -> RiskResult:
     if vp and ctx.last_range_atr is not None and ctx.last_range_atr > vp:
         return fail(Check(4, "Keine außergewöhnliche Marktbewegung", False, "Volatilitätsbremse", f"{vp:g}× ATR",
                           f"{ctx.last_range_atr:.1f}× ATR"))
-    checks.append(Check(4, "Markt geöffnet, kein Sperrzeitraum", True, note="24/7"))
+    checks.append(Check(4, "Markt geöffnet, kein Sperrzeitraum", True, note=ctx.hours))
     # 5 Tagesverlust, Drawdown, Verlustserie
     if ctx.day_start_equity > 0:
         day_loss = (ctx.day_start_equity - ctx.equity) / ctx.day_start_equity * 100
@@ -309,6 +313,8 @@ def _evaluate_module(ctx: RiskContext) -> RiskResult:
     checks.append(Check(3, "Abgleich mit Broker erfolgreich", True))
     if not ctx.tradable:
         return fail(Check(4, "Markt handelbar", False, "Markt", "handelbar", "nur Analyse"))
+    if ctx.venue_note:
+        return fail(Check(4, "Markt beim Broker handelbar", False, "Markt beim Broker", "bietet Markt an", ctx.venue_note))
     bl = _in_blackout(ctx.blackouts, ctx.now)
     if bl:
         return fail(Check(4, "Kein Sperrzeitraum", False, "Sperrzeitraum", "keiner", bl))

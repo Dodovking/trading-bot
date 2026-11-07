@@ -12,7 +12,9 @@ from ..strategies.registry import STRATEGY_TYPES
 from .models import ConfigVersion
 from .types import TIMEFRAMES
 
-DEFAULT_MARKETS = ["BTC/EUR", "ETH/EUR", "SOL/EUR"]
+DEFAULT_MARKETS = ["BTC/EUR", "ETH/EUR", "SOL/EUR", "XRP/EUR", "ADA/EUR", "LINK/EUR", "AVAX/EUR", "DOGE/EUR",
+                   "AAPL", "MSFT", "NVDA", "SPY"]
+OLD_DEFAULT_MARKETS = ["BTC/EUR", "ETH/EUR", "SOL/EUR"]
 
 RISK_FIELDS: dict[str, dict[str, Any]] = {
     "risk_per_trade_pct": {"label": "Maximales Risiko pro Trade", "unit": "%", "min": 0.05, "max": 5, "step": 0.05, "default": 1.0,
@@ -279,3 +281,23 @@ def save_config(db: Session, user_id: int, new_cfg: dict, changed_by: str) -> Co
     db.add(row)
     db.flush()
     return row
+
+
+def migrate_default_markets(db: Session) -> int:
+    """Einmalig: Benutzer mit der alten Standard-Marktliste bekommen die erweiterte Liste (weitere Kryptos und Aktien)."""
+    from sqlalchemy import select
+
+    from .db import utcnow
+    from .models import AppSetting, User
+    if db.get(AppSetting, "migration_maerkte_v2") is not None:
+        return 0
+    n = 0
+    for uid in db.scalars(select(User.id)):
+        cfg, vid = current_config(db, uid)
+        if vid is not None and cfg["markets"] == OLD_DEFAULT_MARKETS:
+            new = {**cfg, "markets": list(DEFAULT_MARKETS)}
+            save_config(db, uid, new, "System-Update (weitere Kryptos und Aktien)")
+            n += 1
+    db.add(AppSetting(key="migration_maerkte_v2", value={"users": n}, updated_at=utcnow()))
+    db.flush()
+    return n

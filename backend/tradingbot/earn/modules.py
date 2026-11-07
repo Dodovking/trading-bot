@@ -65,7 +65,7 @@ def _ctx(runner, inst, side: str, amount: Decimal = D(0), qty: Decimal | None = 
                        peak_equity=runner.rt.peak_equity or equity, loss_streak=runner.rt.loss_streak, positions=[],
                        pending_orders_symbol=pending, bid=t.bid if t else None, ask=t.ask if t else None,
                        volume_24h=t.volume_24h_quote if t else None, min_qty=inst.min_qty, step=inst.step_size, module=SPARPLAN,
-                       module_value=module_value, amount=amount)
+                       module_value=module_value, amount=amount, hours=inst.trading_hours, venue_note=runner.venue_note(inst))
 
 
 def _record(runner, ctx: RiskContext, rr) -> None:

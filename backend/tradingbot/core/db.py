@@ -77,7 +77,32 @@ def init_engine(url: str | None = None):
     from . import models  # noqa: F401
 
     Base.metadata.create_all(engine)
+    _add_missing_columns(engine)
     return engine
+
+
+def _add_missing_columns(eng) -> None:
+    """Einfache Schema-Erweiterung: neue Spalten bestehender Tabellen anlegen (nur Ergänzungen)."""
+    from sqlalchemy import inspect, text
+    insp = inspect(eng)
+    with eng.begin() as conn:
+        for table in Base.metadata.sorted_tables:
+            if not insp.has_table(table.name):
+                continue
+            have = {c["name"] for c in insp.get_columns(table.name)}
+            for col in table.columns:
+                if col.name in have:
+                    continue
+                ddl = col.type.compile(dialect=eng.dialect)
+                default = col.default.arg if col.default is not None and not callable(col.default.arg) else None
+                sql = f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}'
+                if isinstance(default, bool):
+                    sql += f" DEFAULT {int(default) if eng.dialect.name == 'sqlite' else str(default).upper()}"
+                elif isinstance(default, (int, float)):
+                    sql += f" DEFAULT {default}"
+                elif isinstance(default, str):
+                    sql += " DEFAULT '" + default.replace("'", "''") + "'"
+                conn.execute(text(sql))
 
 
 @contextmanager

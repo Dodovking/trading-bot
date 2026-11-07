@@ -20,14 +20,14 @@ export function KontoBoerse({ cfg, save }: { cfg: any; save: (c: any) => void })
       <div className="card"><div className="row between"><h2 style={{ margin: 0 }}>Paper-Konto</h2>{cfg.account === 'paper' && <span className="pill blue">aktiv</span>}</div>
         <p className="muted" style={{ fontSize: 13.5, marginTop: 8 }}>Spielgeld mit echten Kursen · Startkapital {eur(paper?.start_capital)}</p>
         <button className="btn small" onClick={() => setReset(true)}>Zurücksetzen</button></div>
-      <div className="card"><div className="row between"><h2 style={{ margin: 0 }}>Echtgeld-Konto</h2>{cfg.account === 'live' && <span className="pill red">aktiv</span>}</div>
+      <div className="card"><div className="row between"><h2 style={{ margin: 0 }}>{live?.broker === 'alpaca' && live?.environment === 'paper' ? 'Broker-Konto (Alpaca Paper)' : 'Echtgeld-Konto'}</h2>{cfg.account === 'live' && <span className="pill red">aktiv</span>}</div>
         {live?.key_hint ? <>
           <p style={{ fontSize: 13.5, marginTop: 8 }}>{data.providers.find((x: any) => x.id === live.broker)?.name} · Schlüssel <span className="mono">{live.key_hint}</span> ·{' '}
             <span className={live.connected ? 'pos' : 'neg'}>{live.connected ? 'Verbunden' : 'Nicht verbunden'}</span><br /><small>{live.note}</small></p>
           <div className="row wrap">
             <button className="btn small" onClick={async () => { const r = await api('/accounts/live/test', { body: {} }); toast(r.note); reload() }}>Verbindung testen</button>
             <button className="btn small" onClick={() => setSel(live.broker)}>Neu verbinden</button>
-            {cfg.account === 'paper' && live.connected && <button className="btn small danger" onClick={() => { const c = clone(cfg); c.account = 'live'; save(c) }}>Auf Echtgeld umstellen</button>}
+            {cfg.account === 'paper' && live.connected && <button className="btn small danger" onClick={() => { const c = clone(cfg); c.account = 'live'; save(c) }}>{live.broker === 'alpaca' && live.environment === 'paper' ? 'Über Alpaca-Paper-Depot handeln' : 'Auf Echtgeld umstellen'}</button>}
             {cfg.account === 'live' && <button className="btn small" onClick={() => { const c = clone(cfg); c.account = 'paper'; save(c) }}>Zurück zu Paper</button>}
             {cfg.account === 'paper' && <button className="btn small ghost neg" onClick={async () => { if (confirm('Schlüssel löschen?')) { await api('/accounts/live', { method: 'DELETE' }); reload() } }}>Schlüssel löschen</button>}
           </div></> : <p className="muted" style={{ fontSize: 13.5, marginTop: 8 }}>Noch kein Anbieter verbunden. Wähle unten deinen Anbieter und folge der Anleitung.</p>}
@@ -53,11 +53,11 @@ export function KontoBoerse({ cfg, save }: { cfg: any; save: (c: any) => void })
 }
 
 function Guide({ p, rules, allowed, onClose, onDone }: any) {
-  const [key, setKey] = useState(''), [secret, setSecret] = useState(''), [ok, setOk] = useState(false)
+  const [key, setKey] = useState(''), [secret, setSecret] = useState(''), [ok, setOk] = useState(false), [env, setEnv] = useState('paper')
   const [res, setRes] = useState<any>(null), [busy, setBusy] = useState(false)
   const connect = async () => {
     setBusy(true); setRes(null)
-    try { const r = await api('/accounts/live', { body: { broker: p.id, key, secret } }); setRes(r); if (r.connected) { setKey(''); setSecret('') } }
+    try { const r = await api('/accounts/live', { body: { broker: p.id, key, secret, umgebung: env } }); setRes(r); if (r.connected) { setKey(''); setSecret('') } }
     catch (e: any) { setRes({ connected: false, note: e.message }) } finally { setBusy(false) }
   }
   return <Dialog title={`${p.name} verbinden`} onClose={res?.connected ? onDone : onClose} wide>
@@ -69,9 +69,14 @@ function Guide({ p, rules, allowed, onClose, onDone }: any) {
       {p.rechte.length > 0 && <p><b>Benötigte Rechte:</b> {p.rechte.join(' · ')}</p>}
       {p.id !== 'paper' && <div className="note"><b>Sicherheitsregeln</b><ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>{rules.map((r: string) => <li key={r}>{r}</li>)}</ul></div>}
       {p.links.map((l: any) => <p key={l.url}><a href={l.url} target="_blank" rel="noreferrer">{l.label} ↗</a></p>)}
-      {p.status === 'verfuegbar' && p.felder.length > 0 && (allowed ? <div className="card" style={{ background: 'var(--bg)' }}>
-        {p.felder.map((f: any) => <label className="f" key={f.id}><span>{f.label}</span>
+      {p.status === 'verfuegbar' && p.felder.length > 0 && (allowed || p.id === 'alpaca' ? <div className="card" style={{ background: 'var(--bg)' }}>
+        {p.felder.map((f: any) => f.optionen ? <label className="f" key={f.id}><span>{f.label}</span>
+          <select value={env} onChange={(e) => setEnv(e.target.value)}>
+            <option value="paper">Paper (Spielgeld-Konto bei Alpaca)</option>
+            <option value="live" disabled={!allowed}>Live (Echtgeld)</option></select></label>
+          : <label className="f" key={f.id}><span>{f.label}</span>
           <input type="password" autoComplete="off" spellCheck={false} value={f.id === 'key' ? key : secret} onChange={(e) => (f.id === 'key' ? setKey : setSecret)(e.target.value)} /></label>)}
+        {p.id === 'alpaca' && <small className="muted">Die Schlüssel liefern dem Bot die Aktienkurse. Gehandelt wird weiter mit dem Paper-Konto hier in der App, solange du nicht selbst umstellst.</small>}
         <label className="check"><input type="checkbox" checked={ok} onChange={(e) => setOk(e.target.checked)} />Ich bestätige: Der Schlüssel hat <b>keine</b> Auszahlungs- oder Überweisungsrechte.</label>
         {res && <div className={res.connected ? 'ok' : 'err'}>{res.connected ? '✓ ' : ''}{res.note}</div>}
         <button className="btn primary block" disabled={!ok || busy || key.length < 10 || secret.length < 10} onClick={connect}>{busy ? 'Prüfe …' : 'Speichern und Verbindung testen'}</button>

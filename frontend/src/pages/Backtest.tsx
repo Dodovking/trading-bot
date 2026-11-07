@@ -20,7 +20,7 @@ export default function Backtest() {
       <div className="card">
         <div className="grid g3" style={{ gap: 12 }}>
           <label className="f"><span>Strategie</span><select value={f.strategy_type} onChange={set('strategy_type')}>{Object.entries(c.strategy_types).map(([k, v]: any) => <option key={k} value={k}>{v.name}</option>)}</select></label>
-          <label className="f"><span>Markt</span><select value={f.symbol} onChange={set('symbol')}>{c.markets.filter((m: any) => m.market === 'krypto').map((m: any) => <option key={m.symbol}>{m.symbol}</option>)}</select></label>
+          <label className="f"><span>Markt</span><select value={f.symbol} onChange={set('symbol')}>{c.markets.filter((m: any) => (m.market === 'krypto' || m.market === 'aktie') && m.data_ok).map((m: any) => <option key={m.symbol} value={m.symbol}>{m.name ? `${m.name} (${m.symbol})` : m.symbol}</option>)}</select></label>
           <label className="f"><span>Zeitrahmen</span><select value={f.timeframe} onChange={set('timeframe')}>{['15m', '1h', '4h', '1d'].map((t) => <option key={t}>{t}</option>)}</select></label>
           <label className="f"><span>Zeitraum (Tage)</span><input type="number" min={30} max={1500} value={f.days} onChange={set('days', true)} /></label>
           <label className="f"><span>Startkapital (€)</span><input type="number" min={100} value={f.capital} onChange={set('capital', true)} /></label>

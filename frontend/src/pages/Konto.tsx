@@ -4,7 +4,7 @@ import { useApp } from '../App'
 import { Dialog, Loading, toast } from '../ui'
 
 export default function Konto() {
-  const { me, setMe, dash, go } = useApp()
+  const { me, setMe, dash, go, showIntro } = useApp()
   const { data: sessions, reload } = useApi<any[]>('/auth/sessions', 0)
   const { data: prov } = useApi('/providers', 0)
   const [pw, setPw] = useState(false), [tfa, setTfa] = useState<any>(null), [off, setOff] = useState(false)
@@ -13,7 +13,7 @@ export default function Konto() {
   const logout = async () => { await api('/auth/logout', { body: {} }).catch(() => {}); setMe(null) }
   return (
     <>
-      <div className="head"><h1>Konto</h1><button className="btn" onClick={logout}>Abmelden</button></div>
+      <div className="head"><h1>Konto</h1><button className="btn" onClick={showIntro}>Einführung ansehen</button><button className="btn" onClick={logout}>Abmelden</button></div>
       <div className="grid g2">
         <div className="card">
           <div className="row" style={{ marginBottom: 12 }}><div className="avatar" style={{ width: 48, height: 48, fontSize: 16 }}>{initials}</div>

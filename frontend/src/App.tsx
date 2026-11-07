@@ -12,9 +12,10 @@ import Einstellungen from './pages/Einstellungen'
 import Konto from './pages/Konto'
 import Benutzer from './pages/Benutzer'
 import Mehr from './pages/Mehr'
+import { HelpButton, Intro, introKey } from './pages/Hilfe'
 
 export type Me = { id: number; username: string; display_name: string; email: string; role: string; totp_enabled: boolean; terms_accepted: boolean; terms_version: string }
-type Ctx = { me: Me; setMe: (m: Me | null) => void; dash: any; reloadDash: () => void; go: (p: string) => void }
+type Ctx = { me: Me; setMe: (m: Me | null) => void; dash: any; reloadDash: () => void; go: (p: string) => void; showIntro: () => void }
 const AppCtx = createContext<Ctx>(null as any)
 export const useApp = () => useContext(AppCtx)
 
@@ -63,8 +64,10 @@ function Shell({ me, setMe, route }: { me: Me; setMe: (m: Me | null) => void; ro
     einstellungen: Einstellungen, konto: Konto, benutzer: Benutzer, mehr: Mehr }
   const Page = P[page] || Dashboard
   const live = dash?.mode === 'live'
+  const [intro, setIntro] = useState(() => !localStorage.getItem(introKey(me.id)))
+  const closeIntro = () => { localStorage.setItem(introKey(me.id), '1'); setIntro(false) }
   return (
-    <AppCtx.Provider value={{ me, setMe, dash, reloadDash: reload, go }}>
+    <AppCtx.Provider value={{ me, setMe, dash, reloadDash: reload, go, showIntro: () => setIntro(true) }}>
       {dash && <div className={'modebar ' + (live ? 'live' : 'paper')}>{live ? 'ECHTGELD · LIVE-KONTO' : 'PAPER TRADING · SPIELGELD'}</div>}
       <div className="app">
         <aside className="side">
@@ -76,9 +79,10 @@ function Shell({ me, setMe, route }: { me: Me; setMe: (m: Me | null) => void; ro
               <small>{live ? 'Live-Konto' : 'Paper-Konto'} · {eur(dash?.equity)}</small></div>
           </div>
         </aside>
-        <main className="main"><Page /></main>
+        <main className="main"><HelpButton key={page} page={page} onIntro={() => setIntro(true)} /><Page /></main>
         <nav className="tabbar">{TABS.map(([id, label]) => <a key={id} href={'#/' + id} className={page === id || (id === 'mehr' && !TABS.some((t) => t[0] === page)) ? 'on' : ''}><Icon name={id} />{label}</a>)}</nav>
       </div>
+      {intro && <Intro onClose={closeIntro} />}
       <Toaster />
     </AppCtx.Provider>
   )

@@ -37,4 +37,20 @@ def make_broker(db: Session, acct: TradingAccount, cfg: dict, ticker_fn):
     key, secret = decrypt(acct.api_key_enc), decrypt(acct.api_secret_enc)
     if not key or not secret:
         raise ValueError("Für das Echtgeld-Konto ist kein API-Schlüssel hinterlegt")
+    if acct.broker == "alpaca":
+        from ..brokers.alpaca import AlpacaBroker
+        return AlpacaBroker(key, secret, acct.environment or "live", _usd_per_eur(ticker_fn))
     return KrakenBroker(key, secret)
+
+
+def _usd_per_eur(ticker_fn):
+    def rate() -> Decimal:
+        t = ticker_fn("EUR/USD")
+        if t is not None and t.mid > 0:
+            return t.mid
+        from ..engine import get_engine
+        fx = getattr(get_engine().market.source, "fx", None)
+        if fx is None:
+            raise ValueError("Kein EUR/USD-Kurs verfügbar")
+        return fx.usd_per_eur()
+    return rate

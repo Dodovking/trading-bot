@@ -42,11 +42,7 @@ export default function Einstellungen() {
           <S t="Bei erreichtem Limit" h="Offene Positionen halten (mit Stop) oder schließen"><select value={c.risk.on_limit} onChange={(e) => set('risk.on_limit', e.target.value)}><option value="halten">halten</option><option value="schliessen">schließen</option></select></S>
           <S t="Bei Not-Aus"><select value={c.risk.on_emergency} onChange={(e) => set('risk.on_emergency', e.target.value)}><option value="schliessen">alles schließen</option><option value="halten">halten (mit Stop)</option></select></S>
         </>}
-        {tab === 'maerkte' && <>
-          <p className="muted">Märkte, die der Bot beobachtet und handelt. Kein Hebel, keine Leerverkäufe.</p>
-          {meta.markets.map((m: any) => <S key={m.symbol} t={m.symbol} h={m.market + (m.tradable ? '' : ' · nicht handelbar: ' + m.note)}>
-            <Switch checked={c.markets.includes(m.symbol)} disabled={!m.tradable} onChange={(v) => set('markets', v ? [...c.markets, m.symbol] : c.markets.filter((x: string) => x !== m.symbol))} /></S>)}
-        </>}
+        {tab === 'maerkte' && <Maerkte markets={meta.markets} sel={c.markets} onChange={(v: string[]) => set('markets', v)} openBoerse={() => setTab('boerse')} />}
         {tab === 'meldungen' && <Meldungen c={c} set={set} />}
         <div className="row" style={{ marginTop: 16 }}>
           <button className="btn primary" disabled={!dirty} onClick={() => save(c)}>Speichern</button>
@@ -84,5 +80,35 @@ function Meldungen({ c, set }: any) {
     <S t="Zweiter Kanal: ntfy-Thema" h="App „ntfy“ installieren und dieses Thema abonnieren (geheim halten, z. B. tb-ab12cd34)">
       <input style={{ textAlign: 'left' }} value={c.notifications.ntfy_topic} onChange={(e) => set('notifications.ntfy_topic', e.target.value.trim())} placeholder="tb-…" /></S>
     <S t="Test" h="Sendet eine Testmeldung über alle Kanäle"><button className="btn small" onClick={async () => { await api('/push/test', { body: {} }); toast('Testmeldung gesendet') }}>Senden</button></S>
+  </>
+}
+
+const GROUPS: [string, string, (m: any) => boolean][] = [
+  ['Kryptowährungen', 'Rund um die Uhr handelbar · Kurse von Kraken', (m) => m.market === 'krypto'],
+  ['Aktien & ETFs (USA)', 'Mo–Fr 15:30–22:00 Uhr · Kurse von Alpaca, in € umgerechnet · ganze Stück', (m) => m.market === 'aktie'],
+  ['Weitere', '', (m) => m.market !== 'krypto' && m.market !== 'aktie'],
+]
+
+function Maerkte({ markets, sel, onChange, openBoerse }: any) {
+  const stocksMissing = markets.some((m: any) => m.market === 'aktie' && !m.data_ok)
+  const toggle = (s: string, v: boolean) => onChange(v ? [...sel, s] : sel.filter((x: string) => x !== s))
+  return <>
+    <p className="muted">Schalte ein, was der Bot beobachten und handeln darf. Für jeden Markt gelten dieselben Strategien und Sicherheitsregeln wie bei Bitcoin. Kein Hebel, keine Leerverkäufe.</p>
+    {GROUPS.map(([title, hint, fn]) => {
+      const list = markets.filter(fn)
+      if (!list.length) return null
+      const all = list.filter((m: any) => m.tradable).map((m: any) => m.symbol)
+      return <div key={title}>
+        <div className="row between" style={{ alignItems: 'baseline' }}><div className="mkgroup">{title}</div>
+          {all.length > 1 && <button className="btn ghost small" onClick={() => onChange(all.every((x: string) => sel.includes(x)) ? sel.filter((x: string) => !all.includes(x)) : [...new Set([...sel, ...all])])}>
+            {all.every((x: string) => sel.includes(x)) ? 'alle aus' : 'alle an'}</button>}</div>
+        {hint && <small className="muted">{hint}</small>}
+        {title.startsWith('Aktien') && stocksMissing && <div className="info" style={{ marginTop: 8 }}>Für Aktienkurse fehlt noch ein Alpaca-Konto. Eingeschaltete Aktien werden erst gehandelt, wenn Alpaca verbunden ist.{' '}
+          <a href="#/einstellungen/boerse" onClick={(e) => { e.preventDefault(); openBoerse() }}>Jetzt verbinden →</a></div>}
+        {list.map((m: any) => <S key={m.symbol} t={<>{m.name || m.symbol} <small style={{ display: 'inline' }} className="mono">{m.symbol}</small></>}
+          h={m.tradable ? '' : 'nicht handelbar: ' + m.note}>
+          <Switch checked={sel.includes(m.symbol)} disabled={!m.tradable} onChange={(v) => toggle(m.symbol, v)} /></S>)}
+      </div>
+    })}
   </>
 }

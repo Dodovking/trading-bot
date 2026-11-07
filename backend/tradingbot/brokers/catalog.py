@@ -80,21 +80,25 @@ PROVIDERS = [
         "links": [{"label": "Bitvavo: API", "url": "https://support.bitvavo.com/hc/de"}],
     },
     {
-        "id": "alpaca", "name": "Alpaca", "markets": ["aktien"], "status": "in_vorbereitung", "region": "US-Aktien und ETFs",
-        "beschreibung": "Aktien-/ETF-Broker mit offizieller API und kostenlosem Paper-Konto. Handel zu US-Börsenzeiten "
-                        "(15:30–22:00 Uhr deutscher Zeit); das Risikomodul beachtet die Handelszeiten automatisch.",
+        "id": "alpaca", "name": "Alpaca", "markets": ["aktien"], "status": "verfuegbar", "region": "US-Aktien und ETFs",
+        "beschreibung": "Aktien-/ETF-Broker mit offizieller API und kostenlosem Paper-Konto (Spielgeld). Liefert auch die Aktienkurse "
+                        "für den Bot. Handel zu US-Börsenzeiten (15:30–22:00 Uhr deutscher Zeit); das Risikomodul beachtet die "
+                        "Handelszeiten automatisch. Kurse werden in Euro umgerechnet, gehandelt werden ganze Stück.",
         "felder": [{"id": "key", "label": "API Key ID"}, {"id": "secret", "label": "Secret Key"},
                    {"id": "umgebung", "label": "Umgebung", "optionen": ["paper", "live"]}],
         "schritte": [
-            "Bei alpaca.markets registrieren (für Live-Handel ist die Kontoeröffnung mit Identitätsprüfung nötig; "
-            "die Verfügbarkeit hängt vom Wohnsitzland ab).",
-            "Im Dashboard oben „Paper“ oder „Live“ wählen – jede Umgebung hat eigene Schlüssel.",
-            "Rechts „API Keys“ → „Generate New Keys“.",
-            "Key ID und Secret Key hier einfügen, die passende Umgebung wählen und „Verbindung testen“.",
-            "Tipp: Erst mit dem Alpaca-Paper-Konto testen, dann mit Live-klein beginnen.",
+            "Auf alpaca.markets oben rechts „Sign Up“ wählen, mit E-Mail registrieren und die E-Mail bestätigen. Für das Paper-Konto "
+            "(Spielgeld) ist keine Ausweisprüfung nötig; für Echtgeld ist eine Kontoeröffnung mit Identitätsprüfung nötig.",
+            "Nach dem Login oben links „Paper“ auswählen (für Echtgeld „Live“) – jede Umgebung hat eigene Schlüssel.",
+            "Rechts auf der Übersichtsseite im Kasten „API Keys“ auf „Generate New Keys“ klicken.",
+            "„API Key ID“ (Paper beginnt mit PK…) und „Secret Key“ hier einfügen. Das Secret zeigt Alpaca nur einmal an.",
+            "Die passende Umgebung wählen (Paper oder Live) und „Speichern und Verbindung testen“ drücken.",
+            "Ab dann bekommt der Bot Aktienkurse: Unter Einstellungen → Märkte die gewünschten Aktien einschalten. "
+            "Dein Paper-Konto hier in der App handelt sie dann automatisch mit.",
         ],
-        "rechte": ["Trading API (Konto, Orders, Positionen)"],
-        "links": [{"label": "Alpaca: Erste Schritte", "url": "https://docs.alpaca.markets/docs/getting-started"}],
+        "rechte": ["Trading API (Konto, Orders, Positionen) – Alpaca-Schlüssel können keine Auszahlungen auslösen"],
+        "links": [{"label": "Alpaca: Registrieren", "url": "https://app.alpaca.markets/signup"},
+                  {"label": "Alpaca: Erste Schritte", "url": "https://docs.alpaca.markets/docs/getting-started"}],
     },
     {
         "id": "ibkr", "name": "Interactive Brokers", "markets": ["aktien"], "status": "in_vorbereitung",

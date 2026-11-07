@@ -169,3 +169,12 @@ input[type=checkbox] { width: auto; accent-color: var(--green); transform: scale
   .overlay { padding: 0; }
   .ctl { position: sticky; bottom: calc(68px + env(safe-area-inset-bottom)); }
 }
+.main { position: relative; }
+.main > .head { padding-right: 46px; }
+.helpbtn { position: absolute; top: 22px; right: 24px; z-index: 5; width: 34px; height: 34px; border-radius: 17px; border: 1px solid var(--line);
+  background: var(--panel2); color: var(--blue); font: inherit; font-size: 17px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+.helpbtn:hover { border-color: var(--blue); }
+@media (max-width: 760px) { .helpbtn { top: 14px; right: 14px; } }
+.mkgroup { margin: 18px 0 4px; font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.introicon { width: 64px; height: 64px; margin: 0 auto; border-radius: 32px; background: var(--green-bg, rgba(61,220,151,.12)); color: var(--green); display: grid; place-items: center; }
+.introicon svg { width: 32px; height: 32px; }

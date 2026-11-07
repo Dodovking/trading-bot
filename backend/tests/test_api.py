@@ -90,3 +90,24 @@ def test_setup_code_required(client, monkeypatch):
     body = {"username": "dominik", "display_name": "Dominik", "email": "d@x.de", "password": "GeheimesPasswort1"}
     assert client.post("/api/auth/setup", json=body | {"code": "falsch"}).status_code == 403
     assert client.post("/api/auth/setup", json=body | {"code": "abc123"}).status_code == 200
+
+
+def test_markets_and_alpaca_paper_connect(client, monkeypatch):
+    from decimal import Decimal
+
+    from tradingbot.brokers.alpaca import AlpacaBroker
+    setup_admin(client)
+    v = client.get("/api/auth/terms").json()["version"]
+    client.post("/api/auth/terms/accept", json={"version": v, "agb": True, "datenschutz": True, "risiko": True}, headers=H)
+    c = client.get("/api/config").json()
+    by = {m["symbol"]: m for m in c["markets"]}
+    assert {"XRP/EUR", "DOGE/EUR", "AAPL", "SPY"} <= set(by) and by["AAPL"]["market"] == "aktie"
+    assert by["AAPL"]["name"] == "Apple" and "AAPL" in c["config"]["markets"] and "DOGE/EUR" in c["config"]["markets"]
+    monkeypatch.setattr(AlpacaBroker, "check_connection", lambda self: f"{self.name} verbunden")
+    monkeypatch.setattr(AlpacaBroker, "balances", lambda self: {"EUR": Decimal(90000)})
+    r = client.post("/api/accounts/live", json={"broker": "alpaca", "key": "PK" + "k" * 18, "secret": "s" * 30, "umgebung": "paper"},
+                    headers=H).json()
+    assert r["connected"] and "Paper" in r["note"]
+    acc = [a for a in client.get("/api/providers").json()["accounts"] if a["broker"] == "alpaca"]
+    assert acc and acc[0]["environment"] == "paper"
+    assert "s" * 30 not in client.get("/api/providers").text

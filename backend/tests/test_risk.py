@@ -39,6 +39,7 @@ def test_approved_with_stamp_and_caps():
     ({"broker_ok": False}, "Broker-Verbindung"),
     ({"reconcile_ok": False}, "Abgleich mit Broker"),
     ({"tradable": False}, "Markt"),
+    ({"venue_note": "Kraken bietet AAPL nicht an"}, "Markt beim Broker"),
     ({"equity": D(9600)}, "Tagesverlustlimit"),
     ({"loss_streak": 5}, "Verlustserie"),
     ({"stop": None}, "Stop-Loss Pflicht"),

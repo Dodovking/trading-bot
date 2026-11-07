@@ -185,7 +185,10 @@ def orders(limit: int = 200, u: User = Depends(user), db: Session = Depends(get_
 @router.get("/config")
 def get_config(u: User = Depends(user), db: Session = Depends(get_db)):
     cfg, vid = current_config(db, u.id)
-    markets = [{"symbol": i.symbol, "market": i.market, "tradable": i.tradable, "note": i.note}
+    from ..data.instruments import NAMES
+    ready = get_engine().market.stocks_ready()
+    markets = [{"symbol": i.symbol, "name": NAMES.get(i.symbol, ""), "market": i.market, "tradable": i.tradable, "note": i.note,
+                "data_ok": i.market != "aktie" or ready}
                for i in db.scalars(select(Instrument).where(Instrument.active.is_(True)))]
     return {"config": cfg, "version_id": vid, "risk_fields": RISK_FIELDS, "markets": markets, "lifecycle": LIFECYCLE_LABELS,
             "strategy_types": {k: {"name": s.name, "params": [p.to_dict() for p in s.params], "family": s.family}
@@ -296,6 +299,7 @@ def earn(u: User = Depends(user), db: Session = Depends(get_db)):
 def providers(u: User = Depends(user), db: Session = Depends(get_db)):
     ensure_user_setup(db, u.id)
     accts = [{"id": a.id, "kind": a.kind, "broker": a.broker, "currency": a.currency, "connected": a.connected,
+              "environment": a.environment,
               "note": a.connection_note, "key_hint": a.api_key_hint, "start_capital": f(a.start_capital)}
              for a in db.scalars(select(TradingAccount).where(TradingAccount.user_id == u.id))]
     return {"providers": PROVIDERS, "rules": COMMON_RULES, "accounts": accts,
@@ -306,6 +310,7 @@ class KeysIn(BaseModel):
     broker: str
     key: str
     secret: str
+    umgebung: str = "live"
 
 
 @router.post("/accounts/live")
@@ -315,7 +320,8 @@ def set_live_keys(body: KeysIn, u: User = Depends(user), db: Session = Depends(g
         raise HTTPException(400, "Anbieter unbekannt")
     if p["status"] != "verfuegbar":
         raise HTTPException(400, f"{p['name']}: Anbindung ist in Vorbereitung – die Anleitung kannst du schon nutzen")
-    if u.role != "admin" and not foreign_live_allowed(db):
+    env = "paper" if p["id"] == "alpaca" and body.umgebung == "paper" else "live"
+    if env == "live" and u.role != "admin" and not foreign_live_allowed(db):
         raise HTTPException(403, "Echtgeld-Handel ist für dieses Konto noch nicht freigegeben (Administrator)")
     key, secret = body.key.strip(), body.secret.strip()
     if len(key) < 10 or len(secret) < 10:
@@ -328,6 +334,7 @@ def set_live_keys(body: KeysIn, u: User = Depends(user), db: Session = Depends(g
     if cfg["account"] == "live" and acct.connected:
         raise HTTPException(409, "Schlüssel nur im Paper-Modus austauschen (erst auf Paper umstellen)")
     acct.broker, acct.api_key_enc, acct.api_secret_enc = p["id"], encrypt(key), encrypt(secret)
+    acct.environment = env
     acct.api_key_hint = key[:4] + "…" + key[-3:]
     acct.connected, acct.connection_note = False, "Noch nicht getestet"
     db.flush()
@@ -352,6 +359,12 @@ def test_live(u: User = Depends(user), db: Session = Depends(get_db)):
         acct.start_capital = acct.start_capital or bal.get("EUR", Decimal(0))
     except Exception as e:  # noqa: BLE001
         acct.connected, acct.connection_note = False, f"Fehler: {str(e)[:250]}"
+    if acct.broker == "alpaca":
+        from ..data.stocks import reset_keys_cache
+        db.flush()
+        reset_keys_cache()
+        if acct.connected:
+            acct.connection_note += " · liefert auch die Aktienkurse"
     return {"connected": acct.connected, "note": acct.connection_note}
 
 
@@ -420,13 +433,21 @@ def backtest(body: BacktestIn, u: User = Depends(user), db: Session = Depends(ge
         raise HTTPException(400, "Zeitraum 30–1500 Tage")
     cfg, _ = current_config(db, u.id)
     end = utcnow()
+    from ..data.stocks import STOCK_SYMBOLS
+    stock = body.symbol in STOCK_SYMBOLS
     try:
-        raw = BinanceHistory().history(body.symbol, body.timeframe, end - timedelta(days=body.days), end)
+        if stock:
+            src = get_engine().market.source
+            if not hasattr(src, "alpaca"):
+                raise DataSourceError("Aktien-Historie nicht verfügbar")
+            raw = src.alpaca.history(body.symbol, body.timeframe, end - timedelta(days=body.days), end)
+        else:
+            raw = BinanceHistory().history(body.symbol, body.timeframe, end - timedelta(days=body.days), end)
     except DataSourceError as e:
         raise HTTPException(502, str(e)) from e
     bars = [Bar(c.time, float(c.open), float(c.high), float(c.low), float(c.close), float(c.volume)) for c in raw]
     if len(bars) < 300:
-        raise HTTPException(400, f"Zu wenig historische Daten ({len(bars)} Kerzen)")
+        raise HTTPException(400, f"Zu wenig historische Daten ({len(bars)} Kerzen) – längeren Zeitraum oder kleineren Zeitrahmen wählen")
     strat = STRATEGY_TYPES[body.strategy_type]
     res = run(strat, body.params, bars, TIMEFRAMES[body.timeframe],
               BtParams(body.capital, body.risk_pct, cfg["risk"]["max_position_pct"],
@@ -436,7 +457,8 @@ def backtest(body: BacktestIn, u: User = Depends(user), db: Session = Depends(ge
     log_event(u.id, "info", "backtest", f"Backtest {strat.name} {body.symbol} {body.timeframe} ({body.days} Tage): "
               f"{res['gesamt']['rendite_prozent']:+.1f} %, {res['gesamt']['trades']} Trades", kind="backtest", db=db)
     return {"strategy": strat.name, "params": strat.clean_params(body.params), **res,
-            "hinweis": "Daten: Binance-Historie. Vergangene Ergebnisse sind keine Garantie für die Zukunft."}
+            "hinweis": ("Daten: Alpaca (IEX), in € umgerechnet mit EZB-Kursen. " if stock else "Daten: Binance-Historie. ")
+            + "Vergangene Ergebnisse sind keine Garantie für die Zukunft."}
 
 
 # ------------------------------------------------------------------ Export (Steuer)

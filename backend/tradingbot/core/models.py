@@ -116,6 +116,7 @@ class TradingAccount(Base):
     api_key_hint: Mapped[str] = mapped_column(String(16), default="")
     connected: Mapped[bool] = mapped_column(Boolean, default=False)
     connection_note: Mapped[str] = mapped_column(String(300), default="")
+    environment: Mapped[str] = mapped_column(String(10), default="live")  # Alpaca: paper | live
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     __table_args__ = (UniqueConstraint("user_id", "kind"),)
 
