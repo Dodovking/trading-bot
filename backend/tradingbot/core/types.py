@@ -23,6 +23,7 @@ class Bar:
     close: float
     volume: float
     ok: bool = True
+    flag: str = "ok"
 
 
 @dataclass

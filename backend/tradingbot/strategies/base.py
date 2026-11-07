@@ -94,9 +94,14 @@ class Strategy:
         raise NotImplementedError
 
 
+OUTLIER_HOLD_BARS = 6
+
+
 def _data_problem(bars: Sequence[Bar], timeframe: timedelta | None) -> str | None:
-    for b in bars:
-        if not b.ok:
+    n = len(bars)
+    for i, b in enumerate(bars):
+        # Ein auffällig großer Kurssprung kann echt sein: nur kurz abwarten, danach zählt er als normale Kerze
+        if not b.ok and not (b.flag == "ausreisser" and n - i > OUTLIER_HOLD_BARS):
             return f"Fehlerhafte Kerze {b.time:%d.%m. %H:%M} (Datenqualität)"
     if timeframe:
         for a, b in zip(bars, bars[1:]):

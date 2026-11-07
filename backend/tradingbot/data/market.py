@@ -133,7 +133,7 @@ class MarketData:
             q = q.where(Candle.time <= until)
         rows = db.scalars(q.order_by(Candle.time.desc()).limit(limit)).all()
         return [Bar(r.time, float(r.open), float(r.high), float(r.low), float(r.close), float(r.volume),
-                    r.quality_flag == "ok") for r in reversed(rows)]
+                    r.quality_flag == "ok", r.quality_flag) for r in reversed(rows)]
 
     # ------------------------------------------------------------------ Gesundheit
     def ticker(self, symbol: str) -> Ticker | None:

@@ -35,3 +35,17 @@ def test_costs_reduce_result():
     cheap = run(STRATEGY_TYPES["momentum"], {}, bars, timedelta(hours=1), BtParams(costs=Costs(0.0, 0.0, 0.0)))
     dear = run(STRATEGY_TYPES["momentum"], {}, bars, timedelta(hours=1), BtParams(costs=Costs(0.5, 0.2, 0.1)))
     assert dear["gesamt"]["endkapital"] <= cheap["gesamt"]["endkapital"]
+
+
+def test_old_outlier_no_longer_blocks_entries():
+    from tradingbot.core.types import Bar
+    from tradingbot.strategies.base import _data_problem
+    t0 = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    bars = [Bar(t0 + timedelta(hours=4 * i), 1, 1, 1, 1, 1) for i in range(20)]
+    bars[5] = Bar(bars[5].time, 1, 1, 1, 1, 1, False, "ausreisser")
+    assert _data_problem(bars, timedelta(hours=4)) is None
+    bars[-2] = Bar(bars[-2].time, 1, 1, 1, 1, 1, False, "ausreisser")
+    assert "Datenqualität" in _data_problem(bars, timedelta(hours=4))
+    bars[-2] = Bar(bars[-2].time, 1, 1, 1, 1, 1)
+    bars[5] = Bar(bars[5].time, 1, 1, 1, 1, 1, False, "inkonsistent")
+    assert "Datenqualität" in _data_problem(bars, timedelta(hours=4))
