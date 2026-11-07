@@ -27,7 +27,7 @@ from .core.types import TIMEFRAMES, Decision, PositionView
 from .data.instruments import instruments_by_symbol, seed_instruments
 from .data.market import MarketData
 from .data.composite import CompositeSource
-from .execution.accounts import ensure_user_setup, get_account, make_broker
+from .execution.accounts import ensure_user_setup, get_account, make_broker, migrate_broker_links
 from .execution.orders import OrderManager
 from .earn.modules import run_modules
 from .execution.reconcile import reconcile
@@ -65,6 +65,7 @@ class Engine:
         with session_scope() as db:
             seed_instruments(db)
             migrate_default_markets(db)
+            migrate_broker_links(db)
             for rt in db.scalars(select(BotRuntime)):
                 # Nach Neustart immer erst abgleichen (Abschnitt 4.4)
                 if rt.state not in ("NOT_AUS", "GESPERRT"):
@@ -174,6 +175,39 @@ def _set_state(db: Session, rt: BotRuntime, target: str, reason: str, lock_kind:
               kind="zustand", data={"von": old, "nach": target, "sperre": lock_kind}, db=db)
 
 
+RISK_LOCKS = ("tagesverlust", "drawdown", "verlustserie")
+
+
+def switch_account(db: Session, rt: BotRuntime, old: str, new: str) -> None:
+    """Kontowechsel Paper ↔ Echtgeld: Kennzahlen (Tagesstart, Höchststand, Verlustserie, Risikosperren) je Konto getrennt."""
+    if old == new:
+        return
+    today = utcnow().astimezone(BERLIN).date().isoformat()
+    b = dict(rt.baselines or {})
+    lock = rt.lock_kind if rt.state == "GESPERRT" and rt.lock_kind in RISK_LOCKS else ""
+    b[old] = {"day": rt.day, "day_start": None if rt.day_start_equity is None else str(rt.day_start_equity),
+              "peak": None if rt.peak_equity is None else str(rt.peak_equity), "loss_streak": rt.loss_streak,
+              "lock": lock, "lock_reason": rt.state_reason if lock else ""}
+    n = b.get(new) or {}
+    same_day = n.get("day") == today
+    rt.day = n.get("day", "") if same_day else ""
+    rt.day_start_equity = D(n["day_start"]) if same_day and n.get("day_start") else None
+    rt.peak_equity = D(n["peak"]) if n.get("peak") else None
+    rt.loss_streak = int(n.get("loss_streak") or 0)
+    rt.baselines = b
+    rt.last_reconcile_at = rt.last_snapshot_at = None
+    back = n.get("lock", "")
+    if back == "tagesverlust" and not same_day:
+        back = ""
+    if back:
+        _set_state(db, rt, "GESPERRT", n.get("lock_reason") or "Sperre dieses Kontos besteht weiter", back, force=True)
+    elif lock:
+        _set_state(db, rt, "SYNCHRONISIERUNG", f"Kontowechsel – Sperre gehört zum {'Paper' if old == 'paper' else 'Echtgeld'}-Konto",
+                   force=True)
+    log_event(rt.user_id, "warnung" if new == "live" else "info", "konto",
+              "Auf ECHTGELD umgestellt" if new == "live" else "Zurück auf Paper (Spielgeld) umgestellt", kind="konto", db=db)
+
+
 class UserRunner:
     def __init__(self, engine: Engine, db: Session, user_id: int):
         self.e = engine
@@ -206,14 +240,17 @@ class UserRunner:
 
     def venue_note(self, inst: Instrument) -> str:
         """Leer, wenn das aktive Konto diesen Markt handeln kann (Paper: alle Märkte)."""
-        if self.acct is None or self.acct.kind == "paper":
+        if self.acct is None or self.acct.kind == "paper" or self.broker is None:
             return ""
-        from .brokers.catalog import BY_ID
-        p = BY_ID.get(self.acct.broker)
-        if p is None:
+        has = getattr(self.broker, "has", None)
+        if has is None or has(inst.market):
             return ""
-        need = "aktien" if inst.market == "aktie" else "krypto"
-        return "" if need in p["markets"] else f"{p['name']} bietet {inst.symbol} nicht an"
+        return f"Kein Echtgeld-Konto für {'Aktien/ETFs' if inst.market == 'aktie' else 'Krypto'} verbunden"
+
+    def venue_cash(self, inst: Instrument, cash: Decimal) -> Decimal:
+        """Bei mehreren Anbietern zählt für einen Kauf nur das Guthaben beim zuständigen Anbieter."""
+        fn = getattr(self.broker, "cash", None)
+        return fn(inst.market, self.acct.currency) if fn and self.acct.kind == "live" else cash
 
     def inst_by_id(self, iid: int) -> Instrument:
         return self.db.get(Instrument, iid)
@@ -457,7 +494,7 @@ class UserRunner:
             user_id=self.user_id, kind="einstieg", symbol=inst.symbol, side="kauf", state=self.rt.state, now=utcnow(), risk=r,
             costs=self.cfg["costs"], feed_ok=health.ok, feed_reason=health.reason, broker_ok=self.rt.broker_ok,
             reconcile_ok=self.rt.last_reconcile_ok, reconcile_note=self.rt.last_reconcile_note, tradable=inst.tradable,
-            blackouts=r.get("blackouts", []), equity=equity, cash=cash, day_start_equity=self.rt.day_start_equity or equity,
+            blackouts=r.get("blackouts", []), equity=equity, cash=self.venue_cash(inst, cash), day_start_equity=self.rt.day_start_equity or equity,
             peak_equity=self.rt.peak_equity or equity, loss_streak=self.rt.loss_streak,
             positions=[OpenPos(self.inst_by_id(p.instrument_id).symbol, p.qty, p.qty * self.mark(p)) for p in positions],
             pending_orders_symbol=pending, bid=t.bid if t else None, ask=t.ask if t else None,

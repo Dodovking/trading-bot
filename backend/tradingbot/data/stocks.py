@@ -61,10 +61,10 @@ def alpaca_keys() -> tuple[str, str] | None:
 
         from ..core.crypto import decrypt
         from ..core.db import session_scope
-        from ..core.models import TradingAccount, User
+        from ..core.models import BrokerLink, User
         with session_scope() as db:
-            rows = db.execute(select(TradingAccount, User.role).join(User, User.id == TradingAccount.user_id)
-                              .where(TradingAccount.broker == "alpaca", TradingAccount.connected.is_(True))).all()
+            rows = db.execute(select(BrokerLink, User.role).join(User, User.id == BrokerLink.user_id)
+                              .where(BrokerLink.broker == "alpaca", BrokerLink.connected.is_(True))).all()
             rows.sort(key=lambda r: (r[1] != "admin", r[0].id))
             for acct, _ in rows:
                 k, s = decrypt(acct.api_key_enc), decrypt(acct.api_secret_enc)

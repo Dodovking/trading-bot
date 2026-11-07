@@ -10,9 +10,11 @@ export function KontoBoerse({ cfg, save }: { cfg: any; save: (c: any) => void })
   const { data, reload } = useApi('/providers', 0)
   const { reloadDash } = useApp()
   const [sel, setSel] = useState<string | null>(null), [filter, setFilter] = useState('alle')
-  const [reset, setReset] = useState(false), [cap, setCap] = useState(10000)
+  const [reset, setReset] = useState(false), [cap, setCap] = useState(10000), [goLive, setGoLive] = useState(false)
   if (!data) return <Loading />
-  const live = data.accounts.find((a: any) => a.kind === 'live'), paper = data.accounts.find((a: any) => a.kind === 'paper')
+  const paper = data.accounts.find((a: any) => a.kind === 'paper')
+  const links: any[] = data.links || [], liveLinks = links.filter((lk) => lk.trades_live)
+  const covers = (m: string) => liveLinks.some((lk) => lk.markets.includes(m))
   const p = data.providers.find((x: any) => x.id === sel)
   const list = data.providers.filter((x: any) => filter === 'alle' || x.markets.includes(filter))
   return <>
@@ -20,17 +22,25 @@ export function KontoBoerse({ cfg, save }: { cfg: any; save: (c: any) => void })
       <div className="card"><div className="row between"><h2 style={{ margin: 0 }}>Paper-Konto</h2>{cfg.account === 'paper' && <span className="pill blue">aktiv</span>}</div>
         <p className="muted" style={{ fontSize: 13.5, marginTop: 8 }}>Spielgeld mit echten Kursen · Startkapital {eur(paper?.start_capital)}</p>
         <button className="btn small" onClick={() => setReset(true)}>Zurücksetzen</button></div>
-      <div className="card"><div className="row between"><h2 style={{ margin: 0 }}>{live?.broker === 'alpaca' && live?.environment === 'paper' ? 'Broker-Konto (Alpaca Paper)' : 'Echtgeld-Konto'}</h2>{cfg.account === 'live' && <span className="pill red">aktiv</span>}</div>
-        {live?.key_hint ? <>
-          <p style={{ fontSize: 13.5, marginTop: 8 }}>{data.providers.find((x: any) => x.id === live.broker)?.name} · Schlüssel <span className="mono">{live.key_hint}</span> ·{' '}
-            <span className={live.connected ? 'pos' : 'neg'}>{live.connected ? 'Verbunden' : 'Nicht verbunden'}</span><br /><small>{live.note}</small></p>
-          <div className="row wrap">
-            <button className="btn small" onClick={async () => { const r = await api('/accounts/live/test', { body: {} }); toast(r.note); reload() }}>Verbindung testen</button>
-            <button className="btn small" onClick={() => setSel(live.broker)}>Neu verbinden</button>
-            {cfg.account === 'paper' && live.connected && <button className="btn small danger" onClick={() => { const c = clone(cfg); c.account = 'live'; save(c) }}>{live.broker === 'alpaca' && live.environment === 'paper' ? 'Über Alpaca-Paper-Depot handeln' : 'Auf Echtgeld umstellen'}</button>}
+      <div className="card"><div className="row between"><h2 style={{ margin: 0 }}>Echtgeld-Konto</h2>{cfg.account === 'live' && <span className="pill red">aktiv</span>}</div>
+        {links.length > 0 ? <>
+          <p className="muted" style={{ fontSize: 13, marginTop: 8 }}>Du kannst mehrere Anbieter gleichzeitig verbinden. Im Echtgeld-Modus läuft jeder Markt automatisch über den passenden Anbieter (z. B. Krypto über Kraken, Aktien über Alpaca).</p>
+          <div className="list">{links.map((lk: any) => <div key={lk.broker}>
+            <div className="sp"><b>{lk.name}</b> <small>{lk.markets.map((m: string) => MK[m]).join(', ')} · Schlüssel <span className="mono">{lk.key_hint}</span></small><br />
+              <small className={lk.connected ? 'pos' : 'neg'}>{lk.connected ? 'Verbunden' : 'Nicht verbunden'}</small>{' '}
+              <small>{lk.environment === 'paper' ? '· Spielgeld-Konto beim Anbieter (nur Kurse, kein Echtgeld)' : '· Echtgeld'}</small><br /><small className="muted">{lk.note}</small></div>
+            <div className="row wrap" style={{ gap: 6 }}>
+              <button className="btn small" onClick={async () => { try { const r = await api('/accounts/live/test', { body: { broker: lk.broker } }); toast(r.note) } catch (e: any) { toast(e.message) } reload() }}>Testen</button>
+              <button className="btn small" onClick={() => setSel(lk.broker)}>Neu verbinden</button>
+              <button className="btn small ghost neg" onClick={async () => { if (confirm(`Schlüssel für ${lk.name} löschen?`)) { try { await api('/accounts/live?broker=' + lk.broker, { method: 'DELETE' }) } catch (e: any) { toast(e.message) } reload(); reloadDash() } }}>Löschen</button>
+            </div></div>)}</div>
+          {liveLinks.length > 0 ? <div className="row wrap" style={{ marginTop: 10 }}>
+            {cfg.account === 'paper' && <button className="btn small danger" onClick={() => setGoLive(true)}>Auf Echtgeld umstellen</button>}
             {cfg.account === 'live' && <button className="btn small" onClick={() => { const c = clone(cfg); c.account = 'paper'; save(c) }}>Zurück zu Paper</button>}
-            {cfg.account === 'paper' && <button className="btn small ghost neg" onClick={async () => { if (confirm('Schlüssel löschen?')) { await api('/accounts/live', { method: 'DELETE' }); reload() } }}>Schlüssel löschen</button>}
-          </div></> : <p className="muted" style={{ fontSize: 13.5, marginTop: 8 }}>Noch kein Anbieter verbunden. Wähle unten deinen Anbieter und folge der Anleitung.</p>}
+            {!covers('krypto') && <small className="muted">Für Krypto ist kein Echtgeld-Anbieter verbunden – Krypto-Märkte werden dann nicht gehandelt.</small>}
+            {!covers('aktien') && <small className="muted">Für Aktien ist kein Echtgeld-Anbieter verbunden – Aktien werden dann nicht gehandelt.</small>}
+          </div> : <p className="muted" style={{ fontSize: 13, marginTop: 10, marginBottom: 0 }}>Für Echtgeld brauchst du mindestens einen Anbieter mit Umgebung „Live“.</p>}
+        </> : <p className="muted" style={{ fontSize: 13.5, marginTop: 8 }}>Noch kein Anbieter verbunden. Wähle unten deinen Anbieter und folge der Anleitung.</p>}
         {!data.live_allowed && <div className="note" style={{ marginTop: 10, marginBottom: 0 }}>Echtgeld-Handel ist für dein Konto noch nicht freigegeben (Administrator).</div>}
       </div>
     </div>
@@ -43,6 +53,13 @@ export function KontoBoerse({ cfg, save }: { cfg: any; save: (c: any) => void })
         <button className="btn small" onClick={() => setSel(x.id)}>Anleitung</button></div>)}</div>
     </div>
     {p && <Guide p={p} rules={data.rules} allowed={data.live_allowed} onClose={() => setSel(null)} onDone={() => { setSel(null); reload(); reloadDash() }} />}
+    {goLive && <Dialog title="Auf Echtgeld umstellen" onClose={() => setGoLive(false)}>
+      <p>Ab jetzt kauft und verkauft der Bot mit <b>echtem Geld</b> über: {liveLinks.map((lk) => lk.name).join(' + ')}.</p>
+      <ul style={{ paddingLeft: 18 }}>{liveLinks.map((lk) => <li key={lk.broker}>{lk.markets.map((m: string) => MK[m]).join(', ')} → {lk.name}</li>)}</ul>
+      <p className="muted" style={{ fontSize: 13 }}>Gewinn/Verlust, Tagesstart und Sicherheitsgrenzen zählen ab jetzt getrennt für das Echtgeld-Konto – das Spielgeld wird nicht mitgerechnet. Für jeden Kauf zählt nur das Guthaben beim jeweiligen Anbieter. Verluste sind möglich.</p>
+      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn" onClick={() => setGoLive(false)}>Abbrechen</button>
+        <button className="btn danger" onClick={() => { setGoLive(false); const c = clone(cfg); c.account = 'live'; save(c) }}>Ja, mit Echtgeld handeln</button></div>
+    </Dialog>}
     {reset && <Dialog title="Paper-Konto zurücksetzen" onClose={() => setReset(false)}>
       <p>Alle Paper-Positionen und offenen Paper-Orders werden verworfen. Der Verlauf bleibt erhalten.</p>
       <label className="f"><span>Neues Startkapital (€)</span><input type="number" min={100} value={cap} onChange={(e) => setCap(Number(e.target.value))} /></label>

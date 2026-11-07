@@ -101,6 +101,8 @@ class BotRuntime(Base):
     heartbeat_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
     last_report_day: Mapped[str] = mapped_column(String(10), default="")
     last_week_report: Mapped[str] = mapped_column(String(10), default="")
+    # Tagesstart/Höchststand/Sperren je Konto (paper | live), damit ein Kontowechsel nichts vermischt
+    baselines: Mapped[dict | None] = mapped_column(JSON)
 
 
 class TradingAccount(Base):
@@ -119,6 +121,27 @@ class TradingAccount(Base):
     environment: Mapped[str] = mapped_column(String(10), default="live")  # Alpaca: paper | live
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     __table_args__ = (UniqueConstraint("user_id", "kind"),)
+
+
+class BrokerLink(Base):
+    """Verbindung zu einem Anbieter (API-Schlüssel). Mehrere gleichzeitig möglich, z. B. Kraken (Krypto) + Alpaca (Aktien).
+
+    Das Echtgeld-Konto (TradingAccount kind=live) handelt über alle Verbindungen mit environment=live:
+    jeder Markt läuft automatisch über den passenden Anbieter.
+    """
+
+    __tablename__ = "broker_links"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    broker: Mapped[str] = mapped_column(String(20))
+    environment: Mapped[str] = mapped_column(String(10), default="live")  # paper | live (Alpaca)
+    api_key_enc: Mapped[str | None] = mapped_column(Text)
+    api_secret_enc: Mapped[str | None] = mapped_column(Text)
+    api_key_hint: Mapped[str] = mapped_column(String(16), default="")
+    connected: Mapped[bool] = mapped_column(Boolean, default=False)
+    connection_note: Mapped[str] = mapped_column(String(300), default="")
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    __table_args__ = (UniqueConstraint("user_id", "broker"),)
 
 
 class PaperLedger(Base):

@@ -156,3 +156,41 @@ def test_stock_health_needs_keys_and_open_market():
     m.tickers["AAPL"] = Ticker("AAPL", D(199), D(200), D(200), D(10**7), mon)
     m.last_closed[("AAPL", "1h")] = datetime(2026, 11, 6, 20, tzinfo=UTC)  # Freitag 15:00 ET
     assert m.health("AAPL", "1h", 60, 3, now=mon).ok  # Wochenende zählt nicht als Datenalter
+
+
+def test_router_routes_by_market_and_cash_per_venue():
+    from tradingbot.brokers.base import BrokerOrderStatus, BrokerRejected, OrderRequest
+    from tradingbot.brokers.router import RouterBroker
+
+    class B:
+        def __init__(self, name, bal):
+            self.name, self.bal, self.sent = name, bal, []
+
+        def balances(self):
+            return dict(self.bal)
+
+        def submit(self, req):
+            self.sent.append(req.symbol)
+            return BrokerOrderStatus(req.client_order_id, self.name, "offen")
+
+        def query(self, coid, boid=None):
+            return BrokerOrderStatus(coid, self.name, "offen" if coid.startswith(self.name) else "unbekannt")
+
+        def open_stop_orders(self):
+            return [BrokerOrderStatus(self.name + "-stop", None, "offen")]
+
+    k, a = B("k", {"EUR": D(4), "BTC": D("0.001")}), B("a", {"EUR": D(500), "AAPL": D(2)})
+    r = RouterBroker({"krypto": ("Kraken", k), "aktie": ("Alpaca", a)}, lambda coid: None)
+    assert r.balances() == {"EUR": D(504), "BTC": D("0.001"), "AAPL": D(2)}
+    assert r.cash("krypto") == D(4) and r.cash("aktie") == D(500)
+    r.submit(OrderRequest("x1", "AAPL", "AAPL", "kauf", "market", D(1)))
+    r.submit(OrderRequest("x2", "BTC/EUR", "XBTEUR", "kauf", "market", D("0.0001")))
+    assert a.sent == ["AAPL"] and k.sent == ["BTC/EUR"]
+    assert r.query("a-123").broker_order_id == "a" and r.query("k-1").broker_order_id == "k"
+    assert len(r.open_stop_orders()) == 2
+    only = RouterBroker({"krypto": ("Kraken", k)})
+    try:
+        only.submit(OrderRequest("x3", "AAPL", "AAPL", "kauf", "market", D(1)))
+        raise AssertionError
+    except BrokerRejected as e:
+        assert "Aktien" in str(e)

@@ -18,12 +18,13 @@ from ..core.config import (LIFECYCLE_LABELS, RISK_FIELDS, ConfigError, current_c
 from ..core.crypto import encrypt
 from ..core.db import utcnow
 from ..core.events import log_event
-from ..core.models import (AccountSnapshot, AppSetting, BotEvent, BotRuntime, IncomeEntry, Instrument, Order, Position, RegimeLog,
+from ..core.models import (AccountSnapshot, AppSetting, BotEvent, BotRuntime, BrokerLink, IncomeEntry, Instrument, Order, Position, RegimeLog,
                            RiskDecision, SignalRow, StrategyPerformance, TradingAccount, User)
 from ..core.state import STATE_LABELS
 from ..earn.catalog import CATALOG, WARNSIGNALE
 from ..engine import get_engine
-from ..execution.accounts import ensure_user_setup, get_account, make_broker
+from ..execution.accounts import (ensure_live_account, ensure_user_setup, get_account, get_link, get_links, link_broker,
+                                  make_broker, trading_links)
 from ..selection import controller
 from ..selection.regime import REGIME_HINT, REGIMES
 from ..strategies.registry import STRATEGY_TYPES, library
@@ -38,6 +39,14 @@ def f(x) -> float | None:
 
 def _symbols(db: Session) -> dict[int, str]:
     return {i.id: i.symbol for i in db.scalars(select(Instrument))}
+
+
+def _broker_label(db: Session, user_id: int, acct) -> str | None:
+    if acct is None:
+        return None
+    if acct.kind == "paper":
+        return "paper"
+    return " + ".join(BY_ID[lk.broker]["name"] for lk in trading_links(db, user_id) if lk.broker in BY_ID) or None
 
 
 def foreign_live_allowed(db: Session) -> bool:
@@ -96,7 +105,7 @@ def dashboard(u: User = Depends(user), db: Session = Depends(get_db)):
     return {
         "state": rt.state, "state_label": STATE_LABELS[rt.state], "state_reason": rt.state_reason, "state_since": rt.state_since,
         "lock_kind": rt.lock_kind, "want_running": rt.want_running, "mode": cfg["account"], "automation": cfg["automation"],
-        "broker": acct.broker if acct else None, "broker_ok": rt.broker_ok, "reconcile_ok": rt.last_reconcile_ok,
+        "broker": _broker_label(db, u.id, acct), "broker_ok": rt.broker_ok, "reconcile_ok": rt.last_reconcile_ok,
         "reconcile_note": rt.last_reconcile_note, "last_reconcile_at": rt.last_reconcile_at, "heartbeat_age_s": heartbeat_age,
         "engine_error": e.tick_error, "data_ok": e.market.healthy if hasattr(e.market, "healthy") else True,
         "equity": equity, "start_capital": f(acct.start_capital) if acct else None, "exposure": f(exposure), "unrealized": f(unreal),
@@ -218,9 +227,8 @@ def put_config(body: ConfigIn, u: User = Depends(user), db: Session = Depends(ge
     if new["account"] == "live":
         if u.role != "admin" and not foreign_live_allowed(db):
             raise HTTPException(403, "Echtgeld-Handel ist für dieses Konto noch nicht freigegeben (Administrator)")
-        acct = get_account(db, u.id, "live")
-        if acct is None or not acct.connected:
-            raise HTTPException(400, "Zuerst ein Echtgeld-Konto verbinden und testen")
+        if not trading_links(db, u.id):
+            raise HTTPException(400, "Zuerst einen Echtgeld-Anbieter verbinden und testen (Alpaca Paper zählt nicht als Echtgeld)")
     changes = diff_config(old, new)
     warnings = []
     if old["account"] != new["account"]:
@@ -234,7 +242,12 @@ def put_config(body: ConfigIn, u: User = Depends(user), db: Session = Depends(ge
         raise HTTPException(409, "Die Einstellungen wurden inzwischen auf einem anderen Gerät geändert – bitte neu laden")
     if not changes:
         return {"preview": False, "changes": [], "version_id": vid}
-    row = save_config(db, u.id, new, u.display_name)
+    with get_engine().lock:
+        row = save_config(db, u.id, new, u.display_name)
+        if old["account"] != new["account"]:
+            from ..engine import switch_account
+            switch_account(db, db.get(BotRuntime, u.id), old["account"], new["account"])
+        db.commit()
     log_event(u.id, "warnung" if warnings else "info", "einstellungen", f"Einstellungen geändert ({len(changes)} Änderungen)",
               kind="konfiguration", data={"changes": changes[:50], "version_id": row.id}, db=db)
     return {"preview": False, "changes": changes, "version_id": row.id}
@@ -299,10 +312,13 @@ def earn(u: User = Depends(user), db: Session = Depends(get_db)):
 def providers(u: User = Depends(user), db: Session = Depends(get_db)):
     ensure_user_setup(db, u.id)
     accts = [{"id": a.id, "kind": a.kind, "broker": a.broker, "currency": a.currency, "connected": a.connected,
-              "environment": a.environment,
-              "note": a.connection_note, "key_hint": a.api_key_hint, "start_capital": f(a.start_capital)}
+              "note": a.connection_note, "start_capital": f(a.start_capital)}
              for a in db.scalars(select(TradingAccount).where(TradingAccount.user_id == u.id))]
-    return {"providers": PROVIDERS, "rules": COMMON_RULES, "accounts": accts,
+    links = [{"broker": lk.broker, "name": BY_ID[lk.broker]["name"] if lk.broker in BY_ID else lk.broker,
+              "markets": BY_ID[lk.broker]["markets"] if lk.broker in BY_ID else [], "environment": lk.environment,
+              "connected": lk.connected, "note": lk.connection_note, "key_hint": lk.api_key_hint,
+              "trades_live": lk.connected and lk.environment == "live"} for lk in get_links(db, u.id) if lk.api_key_enc]
+    return {"providers": PROVIDERS, "rules": COMMON_RULES, "accounts": accts, "links": links,
             "live_allowed": foreign_live_allowed(db) or u.role == "admin"}
 
 
@@ -311,6 +327,15 @@ class KeysIn(BaseModel):
     key: str
     secret: str
     umgebung: str = "live"
+
+
+class BrokerIn(BaseModel):
+    broker: str | None = None
+
+
+def _link_in_use(db: Session, u: User, link) -> bool:
+    cfg, _ = current_config(db, u.id)
+    return cfg["account"] == "live" and link.connected and link.environment == "live"
 
 
 @router.post("/accounts/live")
@@ -326,57 +351,71 @@ def set_live_keys(body: KeysIn, u: User = Depends(user), db: Session = Depends(g
     key, secret = body.key.strip(), body.secret.strip()
     if len(key) < 10 or len(secret) < 10:
         raise HTTPException(400, "Schlüssel unvollständig")
-    acct = get_account(db, u.id, "live")
-    if acct is None:
-        acct = TradingAccount(user_id=u.id, kind="live", broker=p["id"], currency="EUR", start_capital=Decimal(0))
-        db.add(acct)
-    cfg, _ = current_config(db, u.id)
-    if cfg["account"] == "live" and acct.connected:
-        raise HTTPException(409, "Schlüssel nur im Paper-Modus austauschen (erst auf Paper umstellen)")
-    acct.broker, acct.api_key_enc, acct.api_secret_enc = p["id"], encrypt(key), encrypt(secret)
-    acct.environment = env
-    acct.api_key_hint = key[:4] + "…" + key[-3:]
-    acct.connected, acct.connection_note = False, "Noch nicht getestet"
+    link = get_link(db, u.id, p["id"])
+    if link is None:
+        link = BrokerLink(user_id=u.id, broker=p["id"])
+        db.add(link)
+    elif _link_in_use(db, u, link):
+        raise HTTPException(409, f"{p['name']} handelt gerade mit Echtgeld – Schlüssel nur im Paper-Modus austauschen")
+    link.api_key_enc, link.api_secret_enc = encrypt(key), encrypt(secret)
+    link.environment = env
+    link.api_key_hint = key[:4] + "…" + key[-3:]
+    link.connected, link.connection_note = False, "Noch nicht getestet"
+    ensure_live_account(db, u.id)
     db.flush()
     log_event(u.id, "warnung", "konto", f"API-Schlüssel für {p['name']} hinterlegt", kind="konto", db=db)
-    return test_live(u, db)
+    return test_live(BrokerIn(broker=p["id"]), u, db)
 
 
 @router.post("/accounts/live/test")
-def test_live(u: User = Depends(user), db: Session = Depends(get_db)):
-    acct = get_account(db, u.id, "live")
-    if acct is None:
-        raise HTTPException(404, "Kein Echtgeld-Konto hinterlegt")
-    cfg, _ = current_config(db, u.id)
-    try:
-        broker = make_broker(db, acct, cfg, get_engine().market.ticker)
-        note = broker.check_connection()
-        bal = broker.balances()
-        perm = getattr(broker, "check_no_withdrawal", None)
-        if perm:
-            perm()
-        acct.connected, acct.connection_note = True, note
-        acct.start_capital = acct.start_capital or bal.get("EUR", Decimal(0))
-    except Exception as e:  # noqa: BLE001
-        acct.connected, acct.connection_note = False, f"Fehler: {str(e)[:250]}"
-    if acct.broker == "alpaca":
-        from ..data.stocks import reset_keys_cache
-        db.flush()
-        reset_keys_cache()
-        if acct.connected:
-            acct.connection_note += " · liefert auch die Aktienkurse"
-    return {"connected": acct.connected, "note": acct.connection_note}
+def test_live(body: BrokerIn | None = None, u: User = Depends(user), db: Session = Depends(get_db)):
+    links = [lk for lk in get_links(db, u.id) if lk.api_key_enc and (not body or not body.broker or lk.broker == body.broker)]
+    if not links:
+        raise HTTPException(404, "Kein Anbieter verbunden")
+    notes, cash = [], Decimal(0)
+    for link in links:
+        try:
+            broker = link_broker(link, get_engine().market.ticker)
+            note = broker.check_connection()
+            bal = broker.balances()
+            perm = getattr(broker, "check_no_withdrawal", None)
+            if perm:
+                perm()
+            link.connected, link.connection_note = True, note
+            if link.environment == "live":
+                cash += bal.get("EUR", Decimal(0))
+        except Exception as e:  # noqa: BLE001
+            link.connected, link.connection_note = False, f"Fehler: {str(e)[:250]}"
+        if link.broker == "alpaca":
+            from ..data.stocks import reset_keys_cache
+            db.flush()
+            reset_keys_cache()
+            if link.connected:
+                link.connection_note += " · liefert auch die Aktienkurse"
+        notes.append(link.connection_note if len(links) == 1 else f"{BY_ID.get(link.broker, {}).get('name', link.broker)}: "
+                     f"{link.connection_note}")
+    acct = ensure_live_account(db, u.id)
+    acct.connected = bool(trading_links(db, u.id))
+    if not acct.start_capital and cash:
+        acct.start_capital = cash
+    return {"connected": all(lk.connected for lk in links), "note": " | ".join(notes)}
 
 
 @router.delete("/accounts/live")
-def delete_live(u: User = Depends(user), db: Session = Depends(get_db)):
-    cfg, _ = current_config(db, u.id)
-    if cfg["account"] == "live":
-        raise HTTPException(409, "Erst auf Paper umstellen")
+def delete_live(broker: str | None = None, u: User = Depends(user), db: Session = Depends(get_db)):
+    for link in get_links(db, u.id):
+        if broker and link.broker != broker:
+            continue
+        if _link_in_use(db, u, link):
+            raise HTTPException(409, f"{BY_ID.get(link.broker, {}).get('name', link.broker)} handelt gerade mit Echtgeld – "
+                                     "erst auf Paper umstellen")
+        db.delete(link)
+    db.flush()
+    from ..data.stocks import reset_keys_cache
+    reset_keys_cache()
     acct = get_account(db, u.id, "live")
     if acct:
-        acct.api_key_enc = acct.api_secret_enc = None
-        acct.connected, acct.connection_note, acct.api_key_hint = False, "Schlüssel gelöscht", ""
+        acct.connected = bool(trading_links(db, u.id))
     return {"ok": True}
 
 
