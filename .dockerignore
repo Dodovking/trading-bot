@@ -1,0 +1,12 @@
+.venv
+**/node_modules
+frontend/dist
+**/__pycache__
+**/*.pyc
+data
+*.db
+*.db-*
+.devnotes.md
+.git
+.pytest_cache
+.ruff_cache
