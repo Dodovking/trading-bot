@@ -223,8 +223,107 @@ def test_external_holdings_excludes_bot_positions():
     runner = NS(acct=NS(kind="live", currency="EUR"), positions=lambda: [NS(instrument_id=1, qty=D("0.001"))],
                 inst_by_id=lambda i: btc, db=NS(scalars=lambda q: [btc, eth]), e=NS(market=NS(ticker=tick.get)))
     out = UserRunner.external_holdings(runner, {"EUR": D(4), "BTC": D("0.003"), "ETH.S": D("0.5"), "PEPE": D(1000)})
-    assert out == [{"asset": "BTC", "qty": "0.002", "eur": "160.00", "staking": False},
-                   {"asset": "ETH", "qty": "0.5", "eur": None, "staking": True},
-                   {"asset": "PEPE", "qty": "1000", "eur": None, "staking": False}]
+    assert out == [{"asset": "BTC", "qty": "0.002", "eur": "160.00", "staking": False, "symbol": "BTC/EUR"},
+                   {"asset": "ETH", "qty": "0.5", "eur": None, "staking": True, "symbol": None},
+                   {"asset": "PEPE", "qty": "1000", "eur": None, "staking": False, "symbol": None}]
     runner.acct.kind = "paper"
     assert UserRunner.external_holdings(runner, {"BTC": D(1)}) is None
+
+
+class FakeLiveBroker:
+    name = "Kraken"
+
+    def __init__(self, reject_stop=False):
+        self.bal = {"EUR": D(4), "BTC": D("0.01"), "ETH.S": D("0.5")}
+        self.reject_stop, self.orders = reject_stop, {}
+
+    def has(self, market):
+        return market == "krypto"
+
+    def cash(self, market, currency="EUR"):
+        return self.bal["EUR"]
+
+    def check_connection(self):
+        return "ok"
+
+    def balances(self):
+        return dict(self.bal)
+
+    def submit(self, req):
+        from tradingbot.brokers.base import BrokerOrderStatus, BrokerRejected
+        if req.type == "stop" and self.reject_stop:
+            raise BrokerRejected("Kraken: EOrder:Insufficient funds")
+        st = BrokerOrderStatus(req.client_order_id, "K-" + req.client_order_id[:6], "offen")
+        self.orders[req.client_order_id] = st
+        return st
+
+    def query(self, coid, boid=None):
+        from tradingbot.brokers.base import BrokerOrderStatus
+        return self.orders.get(coid) or BrokerOrderStatus(coid, None, "unbekannt")
+
+    def cancel(self, coid, boid=None):
+        from tradingbot.brokers.base import BrokerOrderStatus
+        self.orders[coid] = BrokerOrderStatus(coid, boid, "storniert")
+        return self.orders[coid]
+
+    def modify_stop(self, coid, new_stop, boid=None):
+        return self.orders[coid]
+
+    def open_stop_orders(self):
+        return [s for s in self.orders.values() if s.status == "offen"]
+
+
+def _live_setup(engine, db_env, user, monkeypatch, broker):
+    from tradingbot import engine as eng
+    from tradingbot.core.config import current_config, save_config
+    from tradingbot.core.models import TradingAccount
+    from tradingbot.execution.accounts import ensure_user_setup
+    orig = eng.make_broker
+    monkeypatch.setattr(eng, "make_broker", lambda db, acct, cfg, fn: broker if acct.kind == "live" else orig(db, acct, cfg, fn))
+    with db_env.session_scope() as db:
+        ensure_user_setup(db, user)
+        db.add(TradingAccount(user_id=user, kind="live", broker="multi", connected=True))
+        cfg, _ = current_config(db, user)
+        cfg["account"], cfg["markets"] = "live", ["BTC/EUR"]
+        for s in cfg["strategies"]:
+            s["status"] = "live_klein" if s["id"] == "trendfolge" else "entwurf"
+        save_config(db, user, cfg, "test")
+    engine.tick()
+
+
+def test_adopt_holding_becomes_bot_position_with_stop(engine, db_env, user, monkeypatch):
+    from sqlalchemy import select
+
+    from tradingbot.core.models import BotRuntime, Position
+    broker = FakeLiveBroker()
+    _live_setup(engine, db_env, user, monkeypatch, broker)
+    with db_env.session_scope() as db:
+        ext = db.get(BotRuntime, user).external
+        assert {"asset": "BTC", "symbol": "BTC/EUR", "staking": False}.items() <= ext[0].items()
+        start = db.get(BotRuntime, user).day_start_equity
+    with pytest.raises(ValueError, match="gestakte"):
+        engine.command(user, "bestand_uebernehmen", "test", asset="ETH")
+    msg = engine.command(user, "bestand_uebernehmen", "test", asset="BTC")
+    assert "übergeben" in msg
+    with db_env.session_scope() as db:
+        p = db.scalars(select(Position).where(Position.status == "offen")).one()
+        assert p.qty == D("0.01") and p.strategy_id == "trendfolge" and p.stop < p.avg_entry and p.stop_client_order_id
+        assert broker.orders[p.stop_client_order_id].status == "offen"
+        rt = db.get(BotRuntime, user)
+        assert rt.day_start_equity > start
+    engine.tick()
+    with db_env.session_scope() as db:
+        assert all(x["asset"] != "BTC" for x in db.get(BotRuntime, user).external)
+    with pytest.raises(ValueError, match="Kein freier Bestand"):
+        engine.command(user, "bestand_uebernehmen", "test", asset="BTC")
+
+
+def test_adopt_holding_rolls_back_when_stop_rejected(engine, db_env, user, monkeypatch):
+    from sqlalchemy import select
+
+    from tradingbot.core.models import Position
+    _live_setup(engine, db_env, user, monkeypatch, FakeLiveBroker(reject_stop=True))
+    with pytest.raises(ValueError, match="Stop-Loss"):
+        engine.command(user, "bestand_uebernehmen", "test", asset="BTC")
+    with db_env.session_scope() as db:
+        assert db.scalars(select(Position)).all() == []

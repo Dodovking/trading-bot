@@ -9,7 +9,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -20,15 +20,17 @@ from .core import bus
 from .core.config import LIVE_SMALL_RISK_FACTOR, ORDER_STATUSES, SHADOW_STATUSES, current_config, migrate_default_markets
 from .core.db import session_scope, utcnow
 from .core.events import log_event
-from .core.models import (AccountSnapshot, BotRuntime, Instrument, Position, RegimeLog, RiskDecision, SignalRow,
+from .core.models import (AccountSnapshot, BotRuntime, Instrument, Order, Position, RegimeLog, RiskDecision, SignalRow,
                           TradingAccount, User)
 from .core.state import STATE_LABELS, TransitionError, check_transition
 from .core.types import TIMEFRAMES, Decision, PositionView
 from .data.instruments import instruments_by_symbol, refresh_limits, seed_instruments
 from .data.market import MarketData
+from .data.quality import round_tick
 from .data.composite import CompositeSource
 from .execution.accounts import ensure_user_setup, get_account, make_broker, migrate_broker_links
 from .execution.orders import OrderManager
+from .execution.orders import _fmt as _fmt_d
 from .earn.modules import run_modules
 from .execution.reconcile import reconcile
 from .risk.rules import OpenPos, RiskContext, evaluate
@@ -303,8 +305,68 @@ class UserRunner:
             t = self.e.market.ticker(inst.symbol) if inst else None
             value = qty * t.bid if t else (qty if asset == "EUR" else None)
             out.append({"asset": asset, "qty": format(qty.normalize(), "f"), "eur": None if value is None else str(value.quantize(D("0.01"))),
-                        "staking": bool(suffix)})
+                        "staking": bool(suffix), "symbol": inst.symbol if inst and not suffix else None})
         return out
+
+    def adopt_holding(self, asset: str, by: str) -> str:
+        """Eigenen Bestand beim Anbieter ausdrücklich dem Bot übergeben: wird zur Bot-Position mit Stop-Loss."""
+        if self.acct is None or self.acct.kind != "live" or self.om is None:
+            raise ValueError("Übernehmen geht nur im Echtgeld-Modus mit verbundenem Anbieter")
+        if self.rt.state in ("NOT_AUS", "FEHLER"):
+            raise ValueError(f"Übernehmen im Zustand {STATE_LABELS[self.rt.state]} nicht möglich")
+        ext = {x["asset"]: x for x in (self.external_holdings(self.broker.balances()) or []) if not x["staking"]}
+        if asset not in ext:
+            raise ValueError(f"Kein freier Bestand {asset} beim Anbieter gefunden (gestakte Coins zuerst bei Kraken freigeben)")
+        inst = self.insts.get(ext[asset]["symbol"] or "")
+        if inst is None:
+            raise ValueError(f"Für {asset} gibt es im Bot keinen Markt – nur anzeigen möglich")
+        if note := self.venue_note(inst):
+            raise ValueError(note)
+        if inst.symbol not in self.cfg["markets"]:
+            raise ValueError(f"Schalte zuerst {inst.symbol} unter Einstellungen → Märkte ein")
+        weights = controller.current_weights(self.db, self.user_id, self.cfg)
+        cands = [s for s in self.cfg["strategies"] if s["status"] in ORDER_STATUSES["live"] and inst.symbol in (s["markets"] or self.cfg["markets"])]
+        if not cands:
+            raise ValueError("Keine Strategie ist für Echtgeld freigegeben – stelle auf der Seite Strategien eine auf „Live-klein“ oder „Live“")
+        s = max(cands, key=lambda x: weights.get(x["id"], 0.0))
+        t = self.e.market.ticker(inst.symbol)
+        bars = self.e.market.bars(self.db, inst.id, s["timeframe"], 60)
+        from .analysis.indicators import atr
+        a = atr([b.high for b in bars], [b.low for b in bars], [b.close for b in bars], 14)[-1] if len(bars) >= 16 else None
+        if t is None or not a:
+            raise ValueError(f"Für {inst.symbol} fehlen gerade Kursdaten – bitte später nochmal versuchen")
+        qty = D(ext[asset]["qty"])
+        if inst.step_size:
+            qty = (qty / inst.step_size).to_integral_value(ROUND_DOWN) * inst.step_size
+        if qty < (inst.min_qty or D(0)) or qty * t.bid < (inst.min_notional or D(0)):
+            raise ValueError(f"Zu wenig {asset}: Kraken nimmt Stop-Loss und Verkauf erst ab {_fmt_d(inst.min_qty)} {asset} "
+                             f"bzw. {_fmt_d(inst.min_notional)} € an")
+        stop = t.bid - D(str(s["params"].get("stop_atr", 2.0))) * D(str(a))
+        if stop <= 0:
+            raise ValueError("Stop-Loss lässt sich nicht sinnvoll berechnen")
+        value = qty * t.bid
+        trailing = D(str(s["params"]["trailing_atr"])) if s["params"].get("trailing") and s["params"].get("trailing_atr") else None
+        stop = round_tick(stop, inst.tick_size)
+        pos = Position(user_id=self.user_id, account_id=self.acct.id, instrument_id=inst.id, strategy_id=s["id"], strategy_name=s["name"],
+                       qty=qty, avg_entry=t.bid, stop=stop, initial_stop=stop, trailing_atr_mult=trailing, highest_price=t.bid,
+                       status="offen", entry_value=value, fees=D(0))
+        self.db.add(pos)
+        self.db.flush()
+        if not self.om.place_stop(pos, inst):
+            for o in self.db.scalars(select(Order).where(Order.position_id == pos.id)):
+                o.position_id = None
+            self.db.delete(pos)
+            self.db.flush()
+            raise ValueError(f"Der Anbieter hat den Stop-Loss für {asset} abgelehnt – Bestand bleibt bei dir (siehe Meldungen)")
+        # Übernommener Bestand ist kein Gewinn: Tagesstart und Höchststand um den Wert anheben
+        rt = self.rt
+        if rt.day_start_equity is not None:
+            rt.day_start_equity += value
+        if rt.peak_equity is not None:
+            rt.peak_equity += value
+        log_event(self.user_id, "info", "order", f"{_fmt_d(qty)} {asset} (≈ {value.quantize(D('0.01'))} €) von {by} an den Bot übergeben – "
+                  f"Strategie {s['name']}, Stop {_fmt_d(stop)} €", kind="bestand_uebernommen", data={"position_id": pos.id}, db=self.db)
+        return f"{asset} übergeben: Der Bot verwaltet jetzt {_fmt_d(qty)} {asset} mit Stop-Loss bei {_fmt_d(stop)} €"
 
     # ------------------------------------------------------------------ Takt
     def tick(self, now: datetime) -> None:
@@ -674,6 +736,10 @@ class UserRunner:
                     raise ValueError("Position nicht gefunden")
                 if not self.exit_position(p, f"Manuell ({by})", "manuell", forced=True):
                     raise ValueError("Schließen fehlgeschlagen – siehe Meldungen")
+            elif action == "bestand_uebernehmen":
+                msg = self.adopt_holding(str(kw.get("asset") or ""), by)
+                bus.publish(self.user_id)
+                return msg
             elif action == "signal_bestaetigen":
                 sig = self.db.get(SignalRow, int(kw["signal_id"]))
                 if sig is None or sig.user_id != self.user_id or sig.status != "wartet_bestaetigung":

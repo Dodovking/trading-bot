@@ -125,17 +125,18 @@ class CommandIn(BaseModel):
     position_id: int | None = None
     signal_id: int | None = None
     bestaetigt: bool = False
+    asset: str | None = None
 
 
 @router.post("/command")
 def command(body: CommandIn, u: User = Depends(user)):
     allowed = {"start", "pause", "stop", "wartung", "notaus", "freigeben", "position_schliessen", "signal_bestaetigen",
-               "signal_verwerfen", "auswahl_neu", "auswahl_bestaetigen"}
+               "signal_verwerfen", "auswahl_neu", "auswahl_bestaetigen", "bestand_uebernehmen"}
     if body.action not in allowed:
         raise HTTPException(400, "Unbekannter Befehl")
     try:
         msg = get_engine().command(u.id, body.action, u.display_name, position_id=body.position_id, signal_id=body.signal_id,
-                                   bestaetigt=body.bestaetigt)
+                                   bestaetigt=body.bestaetigt, asset=body.asset)
     except ValueError as e:
         raise HTTPException(409, str(e)) from e
     return {"ok": True, "message": msg}

@@ -1,7 +1,8 @@
 import { ago, cls, dt, eur, pct, price, qty } from '../api'
+import { useState } from 'react'
 import { useApp } from '../App'
 import { command, BotControls } from '../controls'
-import { LineChart, Loading, StatePill } from '../ui'
+import { Dialog, LineChart, Loading, StatePill } from '../ui'
 
 export const REG: Record<string, string> = { trend_auf: 'green', trend_ab: 'red', hohe_volatilitaet: 'amber', ruhig: 'blue', seitwaerts: 'grey', unklar: 'grey' }
 const SEV: Record<string, string> = { info: 'grey', warnung: 'amber', fehler: 'red', kritisch: 'red' }
@@ -64,18 +65,7 @@ export default function Dashboard() {
           <small>Aktive Gewichte: {Object.keys(d.weights).length ? Object.entries(d.weights).map(([k, v]: any) => `${k} ${Math.round(v * 100)} %`).join(', ') : 'keine Strategie aktiv'}</small>
         </div>
       </div>
-      {d.external?.length > 0 && <div className="card" style={{ marginTop: 14 }}>
-        <div className="row between"><h2>Weitere Bestände bei deinen Anbietern</h2>
-          <span className="mono">{eur(d.external.reduce((a: number, x: any) => a + (x.eur ? Number(x.eur) : 0), 0))}</span></div>
-        <div className="list">{d.external.map((x: any) => <div key={x.asset + (x.staking ? 's' : '')}>
-          <b style={{ width: 80 }}>{x.asset}</b>
-          <span className="sp mono">{qty(x.qty)}{x.staking ? <small> · gestaked/gebunden</small> : null}</span>
-          <span className="mono">{x.eur != null ? eur(Number(x.eur)) : <small>Kurs unbekannt</small>}</span>
-        </div>)}</div>
-        <small className="muted">Diese Coins und Aktien hast du selbst gekauft. Sie gehören nicht zum Kapital des Bots: Der Bot kauft nur mit
-          deinem Euro-Guthaben und verkauft nur, was er selbst gekauft hat. Soll der Bot damit handeln, tausche den gewünschten Teil beim
-          Anbieter in Euro um.</small>
-      </div>}
+      {d.external?.length > 0 && <ExternalHoldings items={d.external} onDone={reloadDash} />}
       <div className="card" style={{ marginTop: 14 }}>
         <div className="row between"><h2>Meldungen</h2><a href="#/verlauf/meldungen">Alle</a></div>
         <div className="list">{d.events.slice(0, 8).map((e: any) => <div key={e.id}>
@@ -87,4 +77,35 @@ export default function Dashboard() {
       </p>
     </>
   )
+}
+
+function ExternalHoldings({ items, onDone }: { items: any[], onDone: () => void }) {
+  const [pick, setPick] = useState<any>(null), [busy, setBusy] = useState(false)
+  return <div className="card" style={{ marginTop: 14 }}>
+    <div className="row between"><h2>Weitere Bestände bei deinen Anbietern</h2>
+      <span className="mono">{eur(items.reduce((a: number, x: any) => a + (x.eur ? Number(x.eur) : 0), 0))}</span></div>
+    <div className="list">{items.map((x: any) => <div key={x.asset + (x.staking ? 's' : '')}>
+      <b style={{ width: 80 }}>{x.asset}</b>
+      <span className="sp mono">{qty(x.qty)}{x.staking ? <small> · gestaked/gebunden</small> : null}</span>
+      <span className="mono">{x.eur != null ? eur(Number(x.eur)) : <small>Kurs unbekannt</small>}</span>
+      {x.symbol && <button className="btn small" style={{ marginLeft: 8 }} onClick={() => setPick(x)}>Dem Bot übergeben</button>}
+    </div>)}</div>
+    <small className="muted">Diese Coins und Aktien hast du selbst gekauft. Der Bot rührt sie nicht an, solange du sie ihm nicht mit
+      „Dem Bot übergeben“ anvertraust. Gestakte Coins musst du dafür zuerst beim Anbieter freigeben.</small>
+    {pick && <Dialog title={`${pick.asset} dem Bot übergeben?`} onClose={() => setPick(null)}>
+      <p>Der Bot verwaltet dann deine {qty(pick.qty)} {pick.asset}{pick.eur != null ? ` (≈ ${eur(Number(pick.eur))})` : ''} wie einen eigenen Kauf:</p>
+      <ul>
+        <li>Er setzt sofort einen <b>Stop-Loss</b> beim Anbieter. Fällt der Kurs darunter, wird automatisch verkauft.</li>
+        <li>Er <b>verkauft</b>, wenn seine Strategie ein Verkaufssignal gibt. Den Erlös in Euro nutzt er danach für neue Käufe.</li>
+        <li>Gewinn und Verlust zählen ab dem heutigen Kurs, nicht ab deinem damaligen Kaufpreis.</li>
+        <li>Die Grenze „max. Anteil einer Position“ gilt dabei nicht – du übergibst den Bestand bewusst.</li>
+      </ul>
+      <p className="muted">Danach steht {pick.asset} bei den offenen Positionen. Schließt du die Position dort, verkauft der Bot sie sofort gegen Euro.</p>
+      <div className="row" style={{ justifyContent: 'flex-end' }}><button className="btn" onClick={() => setPick(null)}>Abbrechen</button>
+        <button className="btn primary" disabled={busy} onClick={async () => {
+          setBusy(true); const ok = await command('bestand_uebernehmen', { asset: pick.asset }); setBusy(false)
+          if (ok) { setPick(null); onDone() }
+        }}>Ja, übergeben</button></div>
+    </Dialog>}
+  </div>
 }
