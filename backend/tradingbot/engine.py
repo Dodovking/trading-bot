@@ -364,6 +364,7 @@ class UserRunner:
             rt.day_start_equity += value
         if rt.peak_equity is not None:
             rt.peak_equity += value
+        rt.last_snapshot_at = None
         log_event(self.user_id, "info", "order", f"{_fmt_d(qty)} {asset} (≈ {value.quantize(D('0.01'))} €) von {by} an den Bot übergeben – "
                   f"Strategie {s['name']}, Stop {_fmt_d(stop)} €", kind="bestand_uebernommen", data={"position_id": pos.id}, db=self.db)
         return f"{asset} übergeben: Der Bot verwaltet jetzt {_fmt_d(qty)} {asset} mit Stop-Loss bei {_fmt_d(stop)} €"

@@ -313,7 +313,11 @@ def test_adopt_holding_becomes_bot_position_with_stop(engine, db_env, user, monk
         assert rt.day_start_equity > start
     engine.tick()
     with db_env.session_scope() as db:
-        assert all(x["asset"] != "BTC" for x in db.get(BotRuntime, user).external)
+        from tradingbot.core.models import AccountSnapshot
+        rt = db.get(BotRuntime, user)
+        assert all(x["asset"] != "BTC" for x in rt.external)
+        snap = db.scalars(select(AccountSnapshot).order_by(AccountSnapshot.id.desc())).first()
+        assert snap.account_kind == "live" and abs(snap.equity - rt.day_start_equity) < D(1)  # Übergabe ist kein Tagesverlust
     with pytest.raises(ValueError, match="Kein freier Bestand"):
         engine.command(user, "bestand_uebernehmen", "test", asset="BTC")
 

@@ -78,7 +78,8 @@ def dashboard(u: User = Depends(user), db: Session = Depends(get_db)):
                               "opened_at": p.opened_at, "protected": bool(p.stop_client_order_id) or p.side == "bestand"})
     snap = db.scalars(select(AccountSnapshot).where(AccountSnapshot.user_id == u.id, AccountSnapshot.account_kind == cfg["account"])
                       .order_by(AccountSnapshot.id.desc()).limit(1)).first()
-    equity = f(snap.equity) if snap else f(acct.start_capital) if acct else 0
+    # Guthaben aus dem letzten Abgleich + aktueller Wert der offenen Positionen (sofort aktuell, z. B. nach einer Übergabe)
+    equity = f(snap.available + exposure) if snap else f(acct.start_capital) if acct else 0
     since = utcnow() - timedelta(days=90)
     curve = [[s.time, f(s.equity)] for s in db.scalars(select(AccountSnapshot).where(
         AccountSnapshot.user_id == u.id, AccountSnapshot.account_kind == cfg["account"], AccountSnapshot.time >= since)
