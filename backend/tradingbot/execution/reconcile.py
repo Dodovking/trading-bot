@@ -60,10 +60,15 @@ def reconcile(om: OrderManager, mode: str) -> ReconcileResult:
         active = so is not None and so.status in OPEN_STATES and p.stop_client_order_id in open_stops
         bad_asset = any(x.startswith(insts[p.id].base + ":") for x in problems)
         if not active and not bad_asset:
+            day_stop = so is not None and insts[p.id].market == "aktie" and p.qty != p.qty.to_integral_value()
             if om.place_stop(p, insts[p.id]):
                 restored += 1
-                log_event(om.user_id, "warnung", "abgleich", f"Fehlender Stop-Loss für {insts[p.id].symbol} neu gesetzt",
-                          kind="stop_wiederhergestellt", db=db)
+                if day_stop:  # Bruchteil-Stops gelten bei Alpaca nur einen Handelstag
+                    log_event(om.user_id, "info", "abgleich", f"Tages-Stop für {insts[p.id].symbol} (Bruchteil) erneuert",
+                              kind="stop_erneuert", db=db)
+                else:
+                    log_event(om.user_id, "warnung", "abgleich", f"Fehlender Stop-Loss für {insts[p.id].symbol} neu gesetzt",
+                              kind="stop_wiederhergestellt", db=db)
             else:
                 problems.append(f"{insts[p.id].symbol}: kein Stop-Loss beim Broker")
     if problems:

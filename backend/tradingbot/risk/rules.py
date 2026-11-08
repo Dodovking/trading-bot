@@ -9,7 +9,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import ROUND_DOWN, Decimal
+from decimal import ROUND_CEILING, ROUND_DOWN, Decimal
 
 from ..core.crypto import sign, verify
 from ..core.state import NEW_ORDERS_ALLOWED, STATE_LABELS
@@ -55,6 +55,7 @@ class RiskContext:
     volume_24h: Decimal | None = None
     stop: Decimal | None = None
     min_qty: Decimal = D(0)
+    min_notional: Decimal = D(0)  # kleinster Orderwert beim Anbieter in €
     step: Decimal = D("0.00000001")
     last_range_atr: float | None = None
     exit_qty: Decimal | None = None
@@ -143,6 +144,21 @@ def _counterparty(ctx: RiskContext) -> Check | None:
     if share > D(str(r["counterparty_limit_pct"])):
         return Check(6, "Gegenparteilimit eingehalten", False, "Gegenparteilimit", _pct(r["counterparty_limit_pct"]), _pct(share))
     return None
+
+
+def min_order_qty(ctx: RiskContext, price: Decimal) -> Decimal:
+    """Kleinste Menge, die der Anbieter annimmt: Mindestmenge und Mindestorderwert, auf die Schrittgröße aufgerundet."""
+    q = ctx.min_qty or D(0)
+    if ctx.min_notional and price > 0:
+        q = max(q, ctx.min_notional * D("1.02") / price)
+    if q <= 0:
+        return D(0)
+    step = ctx.step or D("0.00000001")
+    return (q / step).to_integral_value(rounding=ROUND_CEILING) * step
+
+
+def _eur(x: Decimal) -> str:
+    return f"{x.quantize(D('0.01'))} €".replace(".", ",")
 
 
 def _free_cash(ctx: RiskContext) -> Decimal:
@@ -257,9 +273,24 @@ def evaluate(ctx: RiskContext) -> RiskResult:
             qty = round_step(max(cap_value, D(0)) / entry, ctx.step)
             result = "verkleinert"
             notes.append(f"verkleinert wegen {label}")
-    if qty <= 0 or qty < ctx.min_qty:
-        return fail(Check(7, "Positionsgröße über Mindestmenge", False, "Mindestmenge", format(ctx.min_qty.normalize(), "f"),
-                          format(qty.normalize(), "f")))
+    min_q = min_order_qty(ctx, entry)
+    if qty <= 0 or qty < min_q:
+        # Kleines Konto: auf die Mindestorder des Anbieters aufrunden, wenn das Risiko dabei begrenzt bleibt
+        up_pct = D(str(r.get("min_order_risk_pct", 0)))
+        min_risk = min_q * per_unit_risk
+        fits = (min_q > 0 and up_pct > 0 and min_risk <= ctx.equity * up_pct / 100
+                and min_risk <= total_cap - ctx.total_open_risk
+                and all(min_q * entry <= cap_value for cap_value, _ in caps))
+        if not fits:
+            why = f"möglich {_eur(max(qty, D(0)) * entry)}"
+            blocker = next((label for cap_value, label in caps if min_q * entry > cap_value), "")
+            if blocker:
+                why += f" (begrenzt durch {blocker})"
+            elif up_pct > 0 and min_risk > ctx.equity * up_pct / 100:
+                why += f"; Mindestorder hätte {(min_risk / ctx.equity * 100).quantize(D('0.1'))} % Risiko"
+            return fail(Check(7, "Positionsgröße über Mindestorder", False, "Mindestorder beim Anbieter", _eur(min_q * entry), why))
+        qty = min_q
+        notes.append(f"auf Mindestorder aufgerundet (Risiko {(min_risk / ctx.equity * 100).quantize(D('0.1'))} % des Kontos)")
     risk_amount = qty * (entry - ctx.stop)
     checks.append(Check(6, "Positionslimit und Exposure eingehalten", True, actual=f"{len(ctx.positions) + 1} Pos."))
     checks.append(Check(7, "Stop-Loss vorhanden, Größe berechnet", True, actual=f"{format(qty.normalize(), 'f')} Stück",
@@ -338,8 +369,9 @@ def _evaluate_module(ctx: RiskContext) -> RiskResult:
             amount, result = max(cap, D(0)), "verkleinert"
             notes.append(f"verkleinert wegen {label}")
     qty = round_step(amount / ctx.ask, ctx.step)
-    if qty <= 0 or qty < ctx.min_qty:
-        return fail(Check(7, "Menge über Mindestmenge", False, "Mindestmenge", format(ctx.min_qty.normalize(), "f"), format(qty.normalize(), "f")))
+    min_q = min_order_qty(ctx, ctx.ask)
+    if qty <= 0 or qty < min_q:
+        return fail(Check(7, "Betrag über Mindestorder", False, "Mindestorder beim Anbieter", _eur(min_q * ctx.ask), _eur(max(qty, D(0)) * ctx.ask)))
     checks.append(Check(6, "Modulbudget und Liquiditätsreserve eingehalten", True, actual=f"{(qty * ctx.ask).quantize(D('0.01'))} €",
                         note="; ".join(notes)))
     checks.append(Check(7, "Bestand ohne Stop (Ertragsmodul, begrenzt durch Modulbudget)", True))

@@ -88,3 +88,28 @@ def test_counterparty_limit():
     risk = {**default_config()["risk"], "total_capital_eur": 15000}
     r = evaluate(ctx(risk=risk))
     assert r.rule == "Gegenparteilimit"
+
+
+def test_fractional_stock_small_amount():
+    # 50 € Konto, Aktie zu 200 €: 1 % Risiko bei 5 % Stop → 0,05 Stück (10 €), begrenzt auf 25 % = 12,50 €
+    r = evaluate(ctx(symbol="AAPL", equity=D(50), cash=D(50), day_start_equity=D(50), peak_equity=D(50), bid=D("199.99"), ask=D(200),
+                     stop=D(190), min_qty=D("0.000001"), min_notional=D(1), step=D("0.000001")))
+    assert r.approved and r.qty == D("0.05")
+
+
+def test_round_up_to_min_order_small_account():
+    # 30 € Konto, BTC-Mindestorder 0,00006 × 80.000 € = 4,80 €; berechnet wären nur 0,3 € Risiko / 5 % = 6 € → passt
+    base = dict(equity=D(30), cash=D(30), day_start_equity=D(30), peak_equity=D(30), bid=D("79999"), ask=D(80000), stop=D(76000),
+                min_qty=D("0.00006"), min_notional=D("0.45"), step=D("0.00000001"))
+    r = evaluate(ctx(**base, strategy_weight=0.1))  # Budget 10 % von 5 % → nur 0,15 € Risiko → 0,0000375 BTC < Mindestmenge
+    assert r.approved and r.qty == D("0.00006") and "aufgerundet" in r.rule
+    off = dict(default_config()["risk"], min_order_risk_pct=0)
+    r = evaluate(ctx(**base, strategy_weight=0.1, risk=off))
+    assert not r.approved and r.rule == "Mindestorder beim Anbieter" and r.limit == "4,80 €"
+
+
+def test_min_order_too_big_for_tiny_account():
+    # 4 € Konto: Mindestorder 4,80 € übersteigt Guthaben und 25 %-Grenze
+    r = evaluate(ctx(equity=D(4), cash=D(4), day_start_equity=D(4), peak_equity=D(4), bid=D("79999"), ask=D(80000), stop=D(76000),
+                     min_qty=D("0.00006"), min_notional=D("0.45"), step=D("0.00000001")))
+    assert not r.approved and r.rule == "Mindestorder beim Anbieter" and "begrenzt durch" in r.actual

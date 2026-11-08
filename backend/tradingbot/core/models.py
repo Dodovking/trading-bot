@@ -58,6 +58,7 @@ class Instrument(Base):
     tick_size: Mapped[Decimal] = mapped_column(Dec)
     min_qty: Mapped[Decimal] = mapped_column(Dec)
     step_size: Mapped[Decimal] = mapped_column(Dec)
+    min_notional: Mapped[Decimal | None] = mapped_column(Dec)  # kleinster Orderwert in Quote-Währung (z. B. Kraken costmin)
     trading_hours: Mapped[str] = mapped_column(String(40), default="24/7")
     tradable: Mapped[bool] = mapped_column(Boolean, default=True)
     note: Mapped[str] = mapped_column(String(200), default="")

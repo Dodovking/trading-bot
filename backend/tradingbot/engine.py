@@ -24,7 +24,7 @@ from .core.models import (AccountSnapshot, BotRuntime, Instrument, Position, Reg
                           TradingAccount, User)
 from .core.state import STATE_LABELS, TransitionError, check_transition
 from .core.types import TIMEFRAMES, Decision, PositionView
-from .data.instruments import instruments_by_symbol, seed_instruments
+from .data.instruments import instruments_by_symbol, refresh_limits, seed_instruments
 from .data.market import MarketData
 from .data.composite import CompositeSource
 from .execution.accounts import ensure_user_setup, get_account, make_broker, migrate_broker_links
@@ -59,6 +59,7 @@ class Engine:
         self.started_at = utcnow()
         self.last_tick: datetime | None = None
         self.tick_error = ""
+        self.limits_at: datetime | None = None
 
     # ------------------------------------------------------------------ Lebenszyklus
     def start(self) -> None:
@@ -66,6 +67,7 @@ class Engine:
             seed_instruments(db)
             migrate_default_markets(db)
             migrate_broker_links(db)
+            self._refresh_limits(db)
             for rt in db.scalars(select(BotRuntime)):
                 # Nach Neustart immer erst abgleichen (Abschnitt 4.4)
                 if rt.state not in ("NOT_AUS", "GESPERRT"):
@@ -73,6 +75,17 @@ class Engine:
         self.market.load_state()
         self._thread = threading.Thread(target=self._loop, name="engine", daemon=True)
         self._thread.start()
+
+    def _refresh_limits(self, db: Session) -> None:
+        if not hasattr(self.market.source, "pair_info"):
+            return
+        try:
+            n = refresh_limits(db, self.market.source)
+            if n:
+                log.info("Mindestmengen von Kraken aktualisiert: %d Märkte", n)
+        except Exception:  # noqa: BLE001 – ohne Netz gelten die gespeicherten Werte
+            log.warning("Mindestmengen von Kraken nicht abrufbar – gespeicherte Werte gelten")
+        self.limits_at = utcnow()
 
     def stop(self) -> None:
         self._stop.set()
@@ -94,6 +107,8 @@ class Engine:
         with self.lock:
             with session_scope() as db:
                 users = list(db.scalars(select(User).where(User.status == "aktiv")))
+                if self.limits_at is None or (utcnow() - self.limits_at).total_seconds() > 86400:
+                    self._refresh_limits(db)
                 insts = instruments_by_symbol(db)
                 cfgs = {}
                 for u in users:
@@ -498,7 +513,7 @@ class UserRunner:
             peak_equity=self.rt.peak_equity or equity, loss_streak=self.rt.loss_streak,
             positions=[OpenPos(self.inst_by_id(p.instrument_id).symbol, p.qty, p.qty * self.mark(p)) for p in positions],
             pending_orders_symbol=pending, bid=t.bid if t else None, ask=t.ask if t else None,
-            volume_24h=t.volume_24h_quote if t else None, stop=_d(sig.stop_suggestion), min_qty=inst.min_qty, step=inst.step_size,
+            volume_24h=t.volume_24h_quote if t else None, stop=_d(sig.stop_suggestion), min_qty=inst.min_qty, min_notional=inst.min_notional or D(0), step=inst.step_size,
             last_range_atr=last_range_atr, strategy_name=s["name"], strategy_weight=weight,
             strategy_open_risk=sum((open_risk[p.id] for p in positions if p.strategy_id == s["id"]), D(0)),
             total_open_risk=sum(open_risk.values(), D(0)), risk_factor=factor, risk_factor_note=note,

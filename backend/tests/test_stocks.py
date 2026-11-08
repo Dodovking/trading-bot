@@ -127,8 +127,15 @@ def test_alpaca_broker_orders():
     st = b.submit(OrderRequest("abc", "AAPL", "AAPL", "kauf", "market", D(2)))
     assert st.status == "ausgefuehrt" and st.avg_price == D(200) and st.fills[0].qty == D(2)
     assert calls[-1][1] == "/v2/orders" and b'"qty":"2"' in calls[-1][2].replace(b" ", b"")
-    with pytest.raises(Exception, match="ganze"):
-        b.submit(OrderRequest("x", "AAPL", "AAPL", "kauf", "market", D("1.5")))
+    b.submit(OrderRequest("f1", "AAPL", "AAPL", "kauf", "market", D("0.0456789")))
+    assert b'"qty":"0.0456789"' in calls[-1][2].replace(b" ", b"")
+    b.submit(OrderRequest("f2", "AAPL", "AAPL", "verkauf", "stop", D("0.0456789"), D(190)))
+    body = calls[-1][2].replace(b" ", b"")
+    assert b'"time_in_force":"day"' in body and b'"stop_price":"209.00"' in body  # Bruchteil: Tages-Stop
+    b.submit(OrderRequest("f3", "AAPL", "AAPL", "verkauf", "stop", D(2), D(190)))
+    assert b'"time_in_force":"gtc"' in calls[-1][2].replace(b" ", b"")
+    with pytest.raises(Exception, match="zu klein"):
+        b.submit(OrderRequest("x", "AAPL", "AAPL", "kauf", "market", D("0.0000000001")))
     assert root_id("abc-r123") == "abc" and b.query("zzz").status == "unbekannt"
 
 

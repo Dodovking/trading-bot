@@ -85,7 +85,7 @@ function Meldungen({ c, set }: any) {
 
 const GROUPS: [string, string, (m: any) => boolean][] = [
   ['Kryptowährungen', 'Rund um die Uhr handelbar · Kurse von Kraken', (m) => m.market === 'krypto'],
-  ['Aktien & ETFs (USA)', 'Mo–Fr 15:30–22:00 Uhr · Kurse von Alpaca, in € umgerechnet · ganze Stück', (m) => m.market === 'aktie'],
+  ['Aktien & ETFs (USA)', 'Mo–Fr 15:30–22:00 Uhr · Kurse von Alpaca, in € umgerechnet · auch Bruchteile ab 1 €', (m) => m.market === 'aktie'],
   ['Weitere', '', (m) => m.market !== 'krypto' && m.market !== 'aktie'],
 ]
 

@@ -48,6 +48,7 @@ class PairInfo:
     tick_size: Decimal
     min_qty: Decimal
     step_size: Decimal
+    min_notional: Decimal = Decimal(0)
 
 
 class DataSourceError(RuntimeError):
@@ -120,7 +121,8 @@ class KrakenPublic:
             alt = v.get("altname", k)
             self._alt_cache[k] = alt
             out[alt] = PairInfo(alt, Decimal(v.get("tick_size") or "1e-%d" % v["pair_decimals"]),
-                                Decimal(v.get("ordermin") or "0"), Decimal(1).scaleb(-int(v["lot_decimals"])))
+                                Decimal(v.get("ordermin") or "0"), Decimal(1).scaleb(-int(v["lot_decimals"])),
+                                Decimal(v.get("costmin") or "0"))
         return out
 
     def candles(self, broker_symbol: str, timeframe: str, since: datetime | None = None):

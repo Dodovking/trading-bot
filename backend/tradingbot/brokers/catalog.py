@@ -83,7 +83,8 @@ PROVIDERS = [
         "id": "alpaca", "name": "Alpaca", "markets": ["aktien"], "status": "verfuegbar", "region": "US-Aktien und ETFs",
         "beschreibung": "Aktien-/ETF-Broker mit offizieller API und kostenlosem Paper-Konto (Spielgeld). Liefert auch die Aktienkurse "
                         "für den Bot. Handel zu US-Börsenzeiten (15:30–22:00 Uhr deutscher Zeit); das Risikomodul beachtet die "
-                        "Handelszeiten automatisch. Kurse werden in Euro umgerechnet, gehandelt werden ganze Stück.",
+                        "Handelszeiten automatisch. Kurse werden in Euro umgerechnet. Der Bot kauft auch Bruchteile von Aktien (ab ca. 1 €), "
+                        "dafür muss im Alpaca-Konto „Fractional Trading“ aktiv sein (Standard).",
         "felder": [{"id": "key", "label": "API Key ID"}, {"id": "secret", "label": "Secret Key"},
                    {"id": "umgebung", "label": "Umgebung", "optionen": ["paper", "live"]}],
         "schritte": [

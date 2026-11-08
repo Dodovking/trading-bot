@@ -59,6 +59,11 @@ RISK_FIELDS: dict[str, dict[str, Any]] = {
                                "help": "Höchstanteil des Gesamtkapitals bei einem Anbieter (nur mit Angabe des Gesamtkapitals)"},
     "total_capital_eur": {"label": "Gesamtkapital (alle Anbieter)", "unit": "€", "min": 0, "max": 100000000, "step": 100, "default": 0,
                           "help": "Für das Gegenparteilimit; 0 = nicht prüfen"},
+    "min_order_risk_pct": {"label": "Kleines Konto: Risiko bei Mindestorder", "unit": "%", "min": 0, "max": 5, "step": 0.5,
+                           "default": 2.0,
+                           "help": "Ist die berechnete Menge kleiner als die kleinste Order des Anbieters, darf der Bot auf diese "
+                                   "Mindestorder aufrunden – aber nur, wenn das Risiko dabei höchstens so viel Prozent des Kontos "
+                                   "beträgt (0 = nie aufrunden)"},
     "volatility_pause_atr": {"label": "Volatilitätsbremse", "unit": "× ATR", "min": 0, "max": 10, "step": 0.5, "default": 4.0,
                              "help": "Kein Einstieg, wenn die letzte Kerze größer als so viele ATR war (0 = aus)"},
 }

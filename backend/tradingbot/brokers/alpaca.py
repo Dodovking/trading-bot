@@ -1,13 +1,14 @@
 """Alpaca-Adapter für US-Aktien/ETFs (Paper- oder Live-Konto). Nur offizielle REST-API.
 
 Der Bot rechnet in Euro: Kontostand und Ausführungspreise werden mit dem aktuellen EUR/USD-Kurs
-umgerechnet, Stop-Preise vor dem Senden in US-Dollar. Nur ganze Stück (dauerhafte GTC-Stops),
-keine Leerverkäufe. Alpaca-API-Schlüssel können keine Auszahlungen auslösen.
+umgerechnet, Stop-Preise vor dem Senden in US-Dollar. Bruchteile von Aktien sind möglich; Alpaca nimmt
+Stops für Bruchteile nur als Tages-Order an – sie verfallen nach Börsenschluss und werden beim Abgleich
+automatisch für den nächsten Handelstag neu gesetzt. Ganze Stück erhalten dauerhafte GTC-Stops. Keine Leerverkäufe. Alpaca-API-Schlüssel können keine Auszahlungen auslösen.
 """
 from __future__ import annotations
 
 import time
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from typing import Callable
 
 import httpx
@@ -19,6 +20,7 @@ STATUS = {"new": "offen", "accepted": "offen", "pending_new": "offen", "accepted
           "pending_replace": "offen", "pending_cancel": "offen", "calculated": "offen", "partially_filled": "teilausgefuehrt",
           "filled": "ausgefuehrt", "done_for_day": "offen", "canceled": "storniert", "expired": "storniert",
           "replaced": "storniert", "stopped": "offen", "suspended": "offen", "rejected": "abgelehnt"}
+QTY_STEP = D("0.000000001")  # Alpaca: bis zu 9 Nachkommastellen
 URLS = {"paper": "https://paper-api.alpaca.markets", "live": "https://api.alpaca.markets"}
 
 
@@ -90,12 +92,14 @@ class AlpacaBroker:
                                  STATUS.get(o.get("status", ""), "offen"), filled, avg, D(0), fills, o.get("status", ""))
 
     def submit(self, req: OrderRequest) -> BrokerOrderStatus:
-        if req.qty != req.qty.to_integral_value():
-            raise BrokerRejected("Alpaca: nur ganze Stück")
-        body = {"symbol": req.broker_symbol, "qty": str(int(req.qty)), "side": "buy" if req.side == "kauf" else "sell",
+        qty = req.qty.quantize(QTY_STEP, ROUND_DOWN)
+        if qty <= 0:
+            raise BrokerRejected("Alpaca: Menge zu klein")
+        whole = qty == qty.to_integral_value()
+        body = {"symbol": req.broker_symbol, "qty": format(qty.normalize(), "f"), "side": "buy" if req.side == "kauf" else "sell",
                 "client_order_id": req.client_order_id}
         if req.type == "stop":
-            body.update(type="stop", time_in_force="gtc", stop_price=str(self._usd(req.stop_price)))
+            body.update(type="stop", time_in_force="gtc" if whole else "day", stop_price=str(self._usd(req.stop_price)))
         else:
             body.update(type="market", time_in_force="day")
         r = self._req("POST", "/v2/orders", json=body)
