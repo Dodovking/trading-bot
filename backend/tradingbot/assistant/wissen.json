@@ -1,0 +1,302 @@
+[
+{
+"q": [
+"ADX"
+],
+"a": "ADX: Kennzahl für die Stärke eines Trends (egal ob auf- oder abwärts). Hoch = starker Trend."
+},
+{
+"q": [
+"Abgleich"
+],
+"a": "Abgleich: Vergleich der Bot-Daten mit dem echten Konto bei der Börse."
+},
+{
+"q": [
+"API-Schlüssel"
+],
+"a": "API-Schlüssel: Zugangsdaten, mit denen der Bot dein Börsenkonto bedienen darf. Ohne Auszahlungsrecht anlegen."
+},
+{
+"q": [
+"ATR"
+],
+"a": "ATR: Durchschnittliche Schwankung je Kerze. Damit wird der Stop-Abstand berechnet."
+},
+{
+"q": [
+"Backtest"
+],
+"a": "Backtest: Test einer Strategie mit vergangenen Kursen."
+},
+{
+"q": [
+"Bollinger-Bänder"
+],
+"a": "Bollinger-Bänder: Bänder um den Durchschnittskurs; zeigen, ob ein Kurs ungewöhnlich hoch/tief ist."
+},
+{
+"q": [
+"Bruchteil"
+],
+"a": "Bruchteil: Teil einer Aktie, z. B. 0,05 Stück. So kann der Bot auch mit kleinen Beträgen Aktien kaufen."
+},
+{
+"q": [
+"Client-Order-ID"
+],
+"a": "Client-Order-ID: Eindeutige Nummer jeder Order; verhindert doppelte Käufe."
+},
+{
+"q": [
+"Drawdown"
+],
+"a": "Drawdown: Rückgang vom bisherigen Höchststand des Kontos, in Prozent."
+},
+{
+"q": [
+"EMA"
+],
+"a": "EMA: Gleitender Durchschnitt (EMA 20 = ungefähr die letzten 20 Kerzen, neuere zählen stärker)."
+},
+{
+"q": [
+"Erwartungswert"
+],
+"a": "Erwartungswert: Durchschnittlicher Gewinn/Verlust pro Trade nach Kosten, gemessen in „R“ (Vielfaches des Risikos)."
+},
+{
+"q": [
+"ETF"
+],
+"a": "ETF: Fonds, der viele Aktien bündelt (z. B. SPY = 500 größte US-Firmen)."
+},
+{
+"q": [
+"Exposure"
+],
+"a": "Exposure: Wie viel vom Konto gerade investiert ist."
+},
+{
+"q": [
+"Hysterese"
+],
+"a": "Hysterese: Mindestvorsprung, bevor der Meta-Controller die Strategie wechselt."
+},
+{
+"q": [
+"Kerze"
+],
+"a": "Kerze: Zusammenfassung der Kurse eines Zeitraums (Eröffnung, Hoch, Tief, Schluss, Umsatz). 1h/4h = Zeitrahmen."
+},
+{
+"q": [
+"Liquidität"
+],
+"a": "Liquidität: Wie viel gehandelt wird. Mehr Liquidität = fairere Preise."
+},
+{
+"q": [
+"Meta-Controller"
+],
+"a": "Meta-Controller: Teil des Bots, der Strategien auswählt und Budget verteilt."
+},
+{
+"q": [
+"Mindestorder"
+],
+"a": "Mindestorder: Kleinste Order, die ein Anbieter annimmt (Kraken je Coin ca. 5–10 €, Alpaca ca. 1 €)."
+},
+{
+"q": [
+"Not-Aus"
+],
+"a": "Not-Aus: Sofortiges Anhalten, optional mit Verkauf aller Positionen."
+},
+{
+"q": [
+"Order"
+],
+"a": "Order: Auftrag an die Börse (kaufen/verkaufen). Market = sofort zum aktuellen Kurs."
+},
+{
+"q": [
+"Paper Trading"
+],
+"a": "Paper Trading: Handel mit Spielgeld zu echten Kursen."
+},
+{
+"q": [
+"Position"
+],
+"a": "Position: Etwas, das gerade gekauft ist und gehalten wird."
+},
+{
+"q": [
+"Profit Factor"
+],
+"a": "Profit Factor: Summe der Gewinne geteilt durch Summe der Verluste. Über 1 = insgesamt Gewinn."
+},
+{
+"q": [
+"Regime"
+],
+"a": "Regime: Erkannte Marktlage (Trend, seitwärts, unruhig …)."
+},
+{
+"q": [
+"RSI"
+],
+"a": "RSI: Kennzahl 0–100: unter ca. 30 „überverkauft“, über ca. 70 „überkauft“."
+},
+{
+"q": [
+"Schattenbetrieb"
+],
+"a": "Schattenbetrieb: Strategien rechnen mit, ohne zu handeln, um bewertet zu werden."
+},
+{
+"q": [
+"Slippage"
+],
+"a": "Slippage: Abweichung zwischen erwartetem und tatsächlichem Ausführungskurs."
+},
+{
+"q": [
+"Spread"
+],
+"a": "Spread: Abstand zwischen Kauf- und Verkaufskurs; versteckte Kosten."
+},
+{
+"q": [
+"Stop-Loss"
+],
+"a": "Stop-Loss: Automatischer Verkauf, wenn der Kurs unter eine Grenze fällt."
+},
+{
+"q": [
+"Trailing Stop"
+],
+"a": "Trailing Stop: Stop-Loss, der bei steigendem Kurs mitwandert (nie nach unten)."
+},
+{
+"q": [
+"Trefferquote"
+],
+"a": "Trefferquote: Anteil der Trades mit Gewinn."
+},
+{
+"q": [
+"Volatilität"
+],
+"a": "Volatilität: Wie stark ein Kurs schwankt."
+},
+{
+"q": [
+"Zwei-Faktor (2FA)"
+],
+"a": "Zwei-Faktor (2FA): Zusätzlicher Code aus einer Authenticator-App beim Anmelden."
+},
+{
+"q": [
+"1. Kurse holen"
+],
+"a": "Kryptokurse kommen von Kraken, Aktienkurse von Alpaca (in Euro umgerechnet). Der Bot arbeitet mit „Kerzen“ – je eine Kerze fasst z. B. 1 oder 4 Stunden zusammen (Eröffnung, Hoch, Tief, Schluss)."
+},
+{
+"q": [
+"2. Daten prüfen"
+],
+"a": "Fehlende Werte, unlogische Kerzen, Lücken oder extreme Sprünge werden markiert. Ist der Kurs zu alt oder unplausibel, wird nicht gekauft."
+},
+{
+"q": [
+"3. Marktlage (Regime) erkennen"
+],
+"a": "Aufwärtstrend, Abwärtstrend, Seitwärts, Hohe Volatilität, Ruhig vor Ausbruch oder Unklar. Jede Strategie passt nur zu bestimmten Lagen."
+},
+{
+"q": [
+"4. Strategie gibt Signal"
+],
+"a": "Eine Strategie (z. B. Trendfolge) meldet „Kaufen“ mit Begründung und einem Stop-Kurs."
+},
+{
+"q": [
+"5. Risikoprüfung"
+],
+"a": "10 Prüfschritte in fester Reihenfolge (Kapitel 7). Das Risikomodul hat ein Veto-Recht – keine Order ohne seine Freigabe. Es berechnet auch, wie viel gekauft wird."
+},
+{
+"q": [
+"6. Order + Stop-Loss"
+],
+"a": "Die Order geht an die Börse (bzw. an das Spielgeld-Konto). Sofort danach wird ein Stop-Loss gesetzt; bei steigendem Kurs wird er nachgezogen (Trailing Stop)."
+},
+{
+"q": [
+"7. Abgleich"
+],
+"a": "Der Bot vergleicht regelmäßig, ob seine Aufzeichnungen mit dem Konto bei der Börse übereinstimmen. Stimmt etwas nicht, stoppt er neue Käufe."
+},
+{
+"q": [
+"Warum kauft der Bot nichts?"
+],
+"a": "Häufigste Gründe: Zustand ist nicht „Bot läuft“ (Start drücken), die Marktlage ist Abwärtstrend, keine Strategie passt, Aktienbörse geschlossen, oder im Echtgeld-Modus ist keine Strategie auf Live-klein/Live. Den genauen Grund zeigt Verlauf → Signale."
+},
+{
+"q": [
+"Kann ich mit dem Bot mehr verlieren als ich einzahle?"
+],
+"a": "Nein, weil kein Hebel, keine Derivate und kein Leerverkauf genutzt werden. Das eingesetzte Guthaben kann aber verloren gehen."
+},
+{
+"q": [
+"Verhindert der Stop-Loss jeden größeren Verlust?"
+],
+"a": "Nicht immer. Bei Kurssprüngen (z. B. über Nacht bei Aktien) kann der Verkauf deutlich unter dem Stop-Kurs liegen."
+},
+{
+"q": [
+"Sehe ich am iPhone dasselbe wie am PC?"
+],
+"a": "Ja. Alles liegt auf dem Server; beide Geräte zeigen denselben Stand."
+},
+{
+"q": [
+"Was passiert, wenn mein Handy aus ist?"
+],
+"a": "Nichts Besonderes – der Bot läuft auf dem Server weiter."
+},
+{
+"q": [
+"Werden meine Spielgeld-Käufe bei Alpaca angezeigt?"
+],
+"a": "Nein. Im Paper-Modus handelt der Bot mit dem Spielgeld in der App; von Alpaca kommen nur die Kurse."
+},
+{
+"q": [
+"Warum zählt der Bot meine Coins bei Kraken nicht mit?"
+],
+"a": "Er zeigt sie unter „Weitere Bestände“ an, handelt aber nur damit, wenn du sie mit „Dem Bot übergeben“ freigibst – so verkauft er nie etwas, das du behalten willst."
+},
+{
+"q": [
+"Kann ich selbst bei Kraken/Alpaca handeln, während der Bot läuft?"
+],
+"a": "Besser nicht mit denselben Coins/Aktien. Der Abgleich bemerkt Abweichungen und stoppt neue Käufe, bis alles geklärt ist."
+},
+{
+"q": [
+"Was ist mit Steuern?"
+],
+"a": "Gewinne können steuerpflichtig sein. Unter Verlauf gibt es einen CSV-Export. Für die Steuer bitte eine Fachperson fragen."
+},
+{
+"q": [
+"Kann ich Einstellungen kaputt machen?"
+],
+"a": "Kaum: Unsinnige Werte werden abgelehnt, vor dem Speichern siehst du alle Änderungen, und mit „Standardwerte“ kommst du zurück."
+}
+]

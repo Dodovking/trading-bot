@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTex
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 
-from .api import admin_routes, auth_routes, bot_routes, ws
+from .api import admin_routes, assistant_routes, auth_routes, bot_routes, ws
 from .api.deps import get_db
 from .core import db as dbm
 from .core.db import utcnow
@@ -43,6 +43,7 @@ app = FastAPI(title="Trading-Bot", lifespan=lifespan, docs_url=None, redoc_url=N
 app.include_router(auth_routes.router)
 app.include_router(bot_routes.router)
 app.include_router(admin_routes.router)
+app.include_router(assistant_routes.router)
 app.include_router(ws.router)
 
 

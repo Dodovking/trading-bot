@@ -214,13 +214,12 @@ class ConfigIn(BaseModel):
     confirm: bool = False
 
 
-@router.post("/config")
-def put_config(body: ConfigIn, u: User = Depends(user), db: Session = Depends(get_db)):
-    """Ohne confirm: nur Vorschau der Änderungen. Mit confirm: speichern (neue Konfigurationsversion)."""
-    old, vid = current_config(db, u.id)
+def config_preview(db: Session, u: User, raw: dict) -> tuple[dict, dict, list[str], list[str]]:
+    """(alt, neu, Änderungen, Warnungen) – wirft HTTPException bei ungültiger oder unerlaubter Konfiguration."""
+    old, _ = current_config(db, u.id)
     known = {i.symbol for i in db.scalars(select(Instrument).where(Instrument.active.is_(True)))}
     try:
-        new = validate_config(body.config, known)
+        new = validate_config(raw, known)
     except ConfigError as e:
         raise HTTPException(400, str(e)) from e
     try:  # gespeicherte Version gleich normalisieren, damit nur echte Änderungen erscheinen
@@ -239,27 +238,39 @@ def put_config(body: ConfigIn, u: User = Depends(user), db: Session = Depends(ge
     for k in ("risk_per_trade_pct", "daily_loss_limit_pct", "max_drawdown_pct"):
         if new["risk"][k] > old["risk"][k]:
             warnings.append(f"{RISK_FIELDS[k]['label']} wird erhöht ({old['risk'][k]} → {new['risk'][k]} %)")
-    if not body.confirm:
-        return {"preview": True, "changes": changes, "warnings": warnings}
-    if body.base_version_id != vid:
-        raise HTTPException(409, "Die Einstellungen wurden inzwischen auf einem anderen Gerät geändert – bitte neu laden")
-    if not changes:
-        return {"preview": False, "changes": [], "version_id": vid}
+    return old, new, changes, warnings
+
+
+def config_commit(db: Session, u: User, old: dict, new: dict, changes: list[str], warnings: list[str], by: str | None = None) -> int:
     with get_engine().lock:
-        row = save_config(db, u.id, new, u.display_name)
+        row = save_config(db, u.id, new, by or u.display_name)
         if old["account"] != new["account"]:
             from ..engine import switch_account
             switch_account(db, db.get(BotRuntime, u.id), old["account"], new["account"])
         db.commit()
     log_event(u.id, "warnung" if warnings else "info", "einstellungen", f"Einstellungen geändert ({len(changes)} Änderungen)",
               kind="konfiguration", data={"changes": changes[:50], "version_id": row.id}, db=db)
-    return {"preview": False, "changes": changes, "version_id": row.id}
+    return row.id
+
+
+@router.post("/config")
+def put_config(body: ConfigIn, u: User = Depends(user), db: Session = Depends(get_db)):
+    """Ohne confirm: nur Vorschau der Änderungen. Mit confirm: speichern (neue Konfigurationsversion)."""
+    _, vid = current_config(db, u.id)
+    old, new, changes, warnings = config_preview(db, u, body.config)
+    if not body.confirm:
+        return {"preview": True, "changes": changes, "warnings": warnings}
+    if body.base_version_id != vid:
+        raise HTTPException(409, "Die Einstellungen wurden inzwischen auf einem anderen Gerät geändert – bitte neu laden")
+    if not changes:
+        return {"preview": False, "changes": [], "version_id": vid}
+    return {"preview": False, "changes": changes, "version_id": config_commit(db, u, old, new, changes, warnings)}
 
 
 @router.get("/config/history")
 def config_history(u: User = Depends(user), db: Session = Depends(get_db)):
     from ..core.models import ConfigVersion
-    return [{"id": c.id, "time": c.created_at, "by": c.changed_by, "summary": c.summary}
+    return [{"id": c.id, "time": c.time, "by": c.changed_by, "summary": c.summary}
             for c in db.scalars(select(ConfigVersion).where(ConfigVersion.user_id == u.id).order_by(ConfigVersion.id.desc()).limit(100))]
 
 

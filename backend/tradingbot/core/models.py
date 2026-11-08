@@ -469,3 +469,17 @@ class AppSetting(Base):
     key: Mapped[str] = mapped_column(String(60), primary_key=True)
     value: Mapped[dict] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class AssistantMessage(Base):
+    """Chat mit dem eingebauten Assistenten (geräteübergreifend gespeichert)."""
+
+    __tablename__ = "assistant_messages"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    time: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+    role: Mapped[str] = mapped_column(String(10))  # du | bot
+    text: Mapped[str] = mapped_column(Text)
+    action: Mapped[dict | None] = mapped_column(JSON)  # vorgeschlagene Änderung
+    action_state: Mapped[str] = mapped_column(String(12), default="")  # offen | erledigt | abgebrochen | fehler
+    meta: Mapped[dict | None] = mapped_column(JSON)  # Gesprächskontext (letzte Absicht)

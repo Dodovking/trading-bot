@@ -7,6 +7,7 @@ import Strategien from './pages/Strategien'
 import Ertrag from './pages/Ertrag'
 import Risiko from './pages/Risiko'
 import Verlauf from './pages/Verlauf'
+import Assistent from './pages/Assistent'
 import Backtest from './pages/Backtest'
 import Einstellungen from './pages/Einstellungen'
 import Konto from './pages/Konto'
@@ -28,10 +29,10 @@ function useRoute() {
 export const go = (p: string) => { location.hash = '#/' + p }
 
 const NAV = [
-  ['dashboard', 'Dashboard'], ['strategien', 'Strategien'], ['ertrag', 'Ertragsmodule'], ['risiko', 'Risiko'], ['verlauf', 'Verlauf'],
+  ['dashboard', 'Dashboard'], ['assistent', 'Assistent'], ['strategien', 'Strategien'], ['ertrag', 'Ertragsmodule'], ['risiko', 'Risiko'], ['verlauf', 'Verlauf'],
   ['backtest', 'Backtest'], ['einstellungen', 'Einstellungen'], ['konto', 'Konto'],
 ]
-const TABS = [['dashboard', 'Dashboard'], ['strategien', 'Strategien'], ['verlauf', 'Verlauf'], ['einstellungen', 'Einstellungen'], ['mehr', 'Mehr']]
+const TABS = [['dashboard', 'Dashboard'], ['strategien', 'Strategien'], ['assistent', 'Assistent'], ['einstellungen', 'Einstellungen'], ['mehr', 'Mehr']]
 
 export default function App() {
   const route = useRoute()
@@ -61,7 +62,7 @@ function Shell({ me, setMe, route }: { me: Me; setMe: (m: Me | null) => void; ro
   const initials = me.display_name.split(/\s+/).map((s) => s[0]).join('').slice(0, 2).toUpperCase()
   const nav = me.role === 'admin' ? [...NAV, ['benutzer', 'Benutzer']] : NAV
   const P: Record<string, any> = { dashboard: Dashboard, strategien: Strategien, ertrag: Ertrag, risiko: Risiko, verlauf: Verlauf, backtest: Backtest,
-    einstellungen: Einstellungen, konto: Konto, benutzer: Benutzer, mehr: Mehr }
+    einstellungen: Einstellungen, konto: Konto, benutzer: Benutzer, mehr: Mehr, assistent: Assistent }
   const Page = P[page] || Dashboard
   const live = dash?.mode === 'live'
   const [intro, setIntro] = useState(() => !localStorage.getItem(introKey(me.id)))
