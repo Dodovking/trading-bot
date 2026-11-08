@@ -282,6 +282,30 @@ class UserRunner:
         cash = bal.get(self.acct.currency, D(0))
         return cash + sum((p.qty * self.mark(p) for p in self.positions()), D(0)), cash
 
+    def external_holdings(self, balances: dict) -> list[dict] | None:
+        """Bestände beim Anbieter, die der Bot nicht selbst gekauft hat (nur Anzeige, kein Bot-Kapital)."""
+        if self.acct.kind != "live":
+            return None
+        bot: dict[str, Decimal] = {}
+        for p in self.positions():
+            base = self.inst_by_id(p.instrument_id).base
+            bot[base] = bot.get(base, D(0)) + p.qty
+        by_base = {i.base: i for i in self.db.scalars(select(Instrument).where(Instrument.quote == "EUR"))}
+        out = []
+        for key, amount in sorted(balances.items()):
+            asset, _, suffix = key.partition(".")
+            if asset == self.acct.currency and not suffix:
+                continue
+            qty = amount - (bot.get(asset, D(0)) if not suffix else D(0))
+            if qty <= D("0.00000001"):
+                continue
+            inst = by_base.get(asset)
+            t = self.e.market.ticker(inst.symbol) if inst else None
+            value = qty * t.bid if t else (qty if asset == "EUR" else None)
+            out.append({"asset": asset, "qty": format(qty.normalize(), "f"), "eur": None if value is None else str(value.quantize(D("0.01"))),
+                        "staking": bool(suffix)})
+        return out
+
     # ------------------------------------------------------------------ Takt
     def tick(self, now: datetime) -> None:
         rt = self.rt
@@ -312,6 +336,7 @@ class UserRunner:
                 rt.last_reconcile_at is None or now - rt.last_reconcile_at >= RECONCILE_EVERY:
             self._reconcile(now)
         equity, cash = self.equity(balances)
+        rt.external = self.external_holdings(balances)
         self._day_and_peak(now, equity)
         self._limits(equity)
         self._protect_positions(now)

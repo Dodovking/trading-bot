@@ -74,7 +74,10 @@ class KrakenBroker:
         res = self._private("Balance")
         out: dict[str, Decimal] = {}
         for code, amount in res.items():
-            name = _ASSET_TO_SYMBOL.get(code, code.split(".")[0])
+            base, _, suffix = code.partition(".")
+            name = _ASSET_TO_SYMBOL.get(code) or _ASSET_TO_SYMBOL.get(base) or base
+            if suffix and suffix != "F":  # .S/.M/.B/.P = gestaked/gebunden, nicht handelbar; .F (Auto Earn) bleibt handelbar
+                name = f"{name}.{suffix}"
             out[name] = out.get(name, Decimal(0)) + Decimal(amount)
         return out
 

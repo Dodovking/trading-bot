@@ -64,6 +64,18 @@ export default function Dashboard() {
           <small>Aktive Gewichte: {Object.keys(d.weights).length ? Object.entries(d.weights).map(([k, v]: any) => `${k} ${Math.round(v * 100)} %`).join(', ') : 'keine Strategie aktiv'}</small>
         </div>
       </div>
+      {d.external?.length > 0 && <div className="card" style={{ marginTop: 14 }}>
+        <div className="row between"><h2>Weitere Bestände bei deinen Anbietern</h2>
+          <span className="mono">{eur(d.external.reduce((a: number, x: any) => a + (x.eur ? Number(x.eur) : 0), 0))}</span></div>
+        <div className="list">{d.external.map((x: any) => <div key={x.asset + (x.staking ? 's' : '')}>
+          <b style={{ width: 80 }}>{x.asset}</b>
+          <span className="sp mono">{qty(x.qty)}{x.staking ? <small> · gestaked/gebunden</small> : null}</span>
+          <span className="mono">{x.eur != null ? eur(Number(x.eur)) : <small>Kurs unbekannt</small>}</span>
+        </div>)}</div>
+        <small className="muted">Diese Coins und Aktien hast du selbst gekauft. Sie gehören nicht zum Kapital des Bots: Der Bot kauft nur mit
+          deinem Euro-Guthaben und verkauft nur, was er selbst gekauft hat. Soll der Bot damit handeln, tausche den gewünschten Teil beim
+          Anbieter in Euro um.</small>
+      </div>}
       <div className="card" style={{ marginTop: 14 }}>
         <div className="row between"><h2>Meldungen</h2><a href="#/verlauf/meldungen">Alle</a></div>
         <div className="list">{d.events.slice(0, 8).map((e: any) => <div key={e.id}>

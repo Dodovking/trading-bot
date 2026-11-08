@@ -116,6 +116,7 @@ def dashboard(u: User = Depends(user), db: Session = Depends(get_db)):
         "weights": weights, "selection_mode": cfg["selection"]["mode"],
         "proposal_open": bool(proposal) and not proposal[0].applied,
         "tickers": {m: {"bid": f(t.bid), "ask": f(t.ask), "last": f(t.last)} for m in cfg["markets"] if (t := e.market.ticker(m))},
+        "external": (rt.external or []) if cfg["account"] == "live" else [],
     }
 
 

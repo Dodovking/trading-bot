@@ -104,6 +104,7 @@ class BotRuntime(Base):
     last_week_report: Mapped[str] = mapped_column(String(10), default="")
     # Tagesstart/Höchststand/Sperren je Konto (paper | live), damit ein Kontowechsel nichts vermischt
     baselines: Mapped[dict | None] = mapped_column(JSON)
+    external: Mapped[list | None] = mapped_column(JSON)  # Bestände beim Anbieter, die nicht vom Bot stammen
 
 
 class TradingAccount(Base):

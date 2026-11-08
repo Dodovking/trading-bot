@@ -201,3 +201,30 @@ def test_router_routes_by_market_and_cash_per_venue():
         raise AssertionError
     except BrokerRejected as e:
         assert "Aktien" in str(e)
+
+
+def test_kraken_balances_staking_and_auto_earn():
+    from tradingbot.brokers.kraken import KrakenBroker
+    b = KrakenBroker("k", "c2VjcmV0")
+    b._private = lambda *a, **kw: {"ZEUR": "4.10", "XXBT": "0.001", "XBT.F": "0.002", "ETH.S": "0.5", "XXDG": "100", "PEPE": "1000"}
+    bal = b.balances()
+    assert bal["EUR"] == D("4.10") and bal["BTC"] == D("0.003") and bal["DOGE"] == D(100)
+    assert bal["ETH.S"] == D("0.5") and "ETH" not in bal and bal["PEPE"] == D(1000)
+
+
+def test_external_holdings_excludes_bot_positions():
+    from types import SimpleNamespace as NS
+
+    from tradingbot.data.sources import Ticker
+    from tradingbot.engine import UserRunner
+    btc = NS(id=1, base="BTC", symbol="BTC/EUR", quote="EUR")
+    eth = NS(id=2, base="ETH", symbol="ETH/EUR", quote="EUR")
+    tick = {"BTC/EUR": Ticker("BTC/EUR", D(80000), D(80010), D(80000), D(1), None)}
+    runner = NS(acct=NS(kind="live", currency="EUR"), positions=lambda: [NS(instrument_id=1, qty=D("0.001"))],
+                inst_by_id=lambda i: btc, db=NS(scalars=lambda q: [btc, eth]), e=NS(market=NS(ticker=tick.get)))
+    out = UserRunner.external_holdings(runner, {"EUR": D(4), "BTC": D("0.003"), "ETH.S": D("0.5"), "PEPE": D(1000)})
+    assert out == [{"asset": "BTC", "qty": "0.002", "eur": "160.00", "staking": False},
+                   {"asset": "ETH", "qty": "0.5", "eur": None, "staking": True},
+                   {"asset": "PEPE", "qty": "1000", "eur": None, "staking": False}]
+    runner.acct.kind = "paper"
+    assert UserRunner.external_holdings(runner, {"BTC": D(1)}) is None
