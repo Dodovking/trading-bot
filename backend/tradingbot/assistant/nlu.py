@@ -151,6 +151,8 @@ def parse(text: str) -> Parsed:
                 continue
             p.status = st
             break
+    if p.status is None and "aus" in words and any_word(words, {"mustere", "muster", "mustern"}):
+        p.status = "ausgemustert"  # „Mustere Range aus“
     for key, seqs in SETTING_WORDS.items():
         if any(has_seq(words, seq) for seq in seqs):
             p.setting = key

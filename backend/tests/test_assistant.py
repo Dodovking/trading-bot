@@ -109,3 +109,6 @@ def test_nlu_examples():
     assert parse("Schalte Dogecoin und Tesla ein").markets == ["DOGE/EUR", "TSLA"]
     assert parse("tagesverlust auf 2,5 prozent").setting == "daily_loss_limit_pct"
     assert parse("tagesverlust auf 2,5 prozent").number == 2.5
+    assert parse("Mustere Range aus").status == "ausgemustert"
+    assert parse("Setze Momentum auf Backtest").status == "backtest"
+    assert parse("Stell Trendfolge auf Entwurf").status == "entwurf"
