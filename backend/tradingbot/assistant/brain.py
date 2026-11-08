@@ -335,7 +335,7 @@ def ans_status(c: Ctx) -> str:
 def ans_money(c: Ctx) -> str:
     d = c.dash
     out = [f"Kontowert: **{eur(d['equity'])}**" + (f" (davon {eur(d['exposure'])} in Positionen)" if d["exposure"] else ""),
-           f"Heute: {eur(d['day_pnl'])}", f"Offene Positionen gerade: {eur(d['unrealized'])}",
+           f"Heute: {eur(d['day_pnl'])}", f"Gewinn/Verlust der offenen Positionen: {eur(d['unrealized'])}",
            f"Abgeschlossene Trades: {d['trades_total']}, zusammen {eur(d['realized_total'])}"
            + (f", Trefferquote {num(d['win_rate'], 1)} %" if d["win_rate"] is not None else "")]
     if d["mode"] == "paper":
